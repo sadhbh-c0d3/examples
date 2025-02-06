@@ -296,7 +296,7 @@ void test_with_shared_ptr()
     
     // Here we will pull the value from the target
     sourceNode.LoadValue(std::make_shared<std::tuple<int, int>>(11, 5));
-    sourceNode.ProcessForwards();
+    targetNode.ProcessBackwards();
     
     std::cout << "Result of processing backwards: f(" << *sourceNode.GetOutputPin().GetData() << ") => " << *targetNode.GetValue() << std::endl;
 }

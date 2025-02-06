@@ -361,7 +361,7 @@ void test_with_node_graph()
     
     // Here we will pull the value from the target
     sourceNode.LoadValue(std::make_shared<ExampleDataSample>(11, 5));
-    sourceNode.ProcessForwards();
+    targetNode.ProcessBackwards();
     
     std::cout << "Result of processing backwards: f(" << *sourceNode.GetOutputPin().GetData() << ") => " << *targetNode.GetValue() << std::endl;
 }
