@@ -9,16 +9,20 @@ namespace {
 class Node
 {
 public:
-    // virtual ~Node() {} -- instead we define private dtor
-    //                    -- note that Process() is still a virtual method
-    //                    -- look at Pin<T> and it calls Process() using vtable
+    virtual ~Node() {}
+
+    Node() {}
+    Node(Node const &) = delete;
+    Node(Node &&) = delete;
+
+    Node &operator= (Node const &) = delete;
+    Node &operator= (Node &&) = delete;
+
     virtual void ProcessForwards() = 0;
     virtual void ProcessBackwards() = 0;
 
     virtual bool HasActiveInputs() = 0;
     virtual bool HasActiveOutputs() = 0;
-
-    virtual ~Node() {}
 };
 
 /// @brief Universal pin
