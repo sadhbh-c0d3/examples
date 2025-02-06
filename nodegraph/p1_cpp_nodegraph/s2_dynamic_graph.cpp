@@ -260,7 +260,6 @@ public:
         return std::move(sourceNodes);
     }
 
-
     std::set<Node *> GetTargetNodes()
     {
         std::set<Node *> targetNodes{};
