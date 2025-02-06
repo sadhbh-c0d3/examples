@@ -254,7 +254,7 @@ public:
         // One could use combination of std::transform() and std::copy_if(), or std::ranges
         for (auto &nodePtr : m_nodes)
         {
-            if (false == nodePtr->HasActiveInputs()) { sourceNodes.insert(nodePtr.get()); }
+            if (not nodePtr->HasActiveInputs()) { sourceNodes.insert(nodePtr.get()); }
         }
     
         return std::move(sourceNodes);
@@ -267,7 +267,7 @@ public:
 
         for (auto &nodePtr : m_nodes)
         {
-            if (false == nodePtr->HasActiveOutputs()) { targetNodes.insert(nodePtr.get()); }
+            if (not nodePtr->HasActiveOutputs()) { targetNodes.insert(nodePtr.get()); }
         }
 
         return std::move(targetNodes);
