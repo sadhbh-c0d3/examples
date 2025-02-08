@@ -513,7 +513,4 @@ void test_s5_dynamic_graph_and_try_connect()
     targetNode->ProcessBackwards();
 
     std::cout << "Result of processing backwards: f(" << *sourceOutputPin->GetData() << ") => " << *targetHolder->GetValue() << std::endl;
-
-    // NOTE: We are exitting this scope so node graph will be destroyed, and all the nodes except source node to which
-    // we still hold shared_ptr in the form of shared_ptr to its member pin.
 }
