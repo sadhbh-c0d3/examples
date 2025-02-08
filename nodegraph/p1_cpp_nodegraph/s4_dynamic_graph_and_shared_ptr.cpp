@@ -26,15 +26,13 @@ template<class T> struct IValueHolder
 
 struct IPin
 {
-    virtual bool IsConnected() = 0;
+    virtual bool IsConnected() const = 0;
     virtual void Disconnect() = 0;
 };
 
 /// @brief General node interface
-struct INode
+struct INode : std::enable_shared_from_this<INode>
 {
-    virtual ~INode() {}
-
     INode() {}
     INode(INode const &) = delete;
     INode(INode &&) = delete;
@@ -48,8 +46,8 @@ struct INode
     virtual bool HasActiveInputs() = 0;
     virtual bool HasActiveOutputs() = 0;
 
-    virtual std::set<IPin*> GetInputPins() = 0;
-    virtual std::set<IPin*> GetOutputPins() = 0;
+    virtual std::set<std::shared_ptr<IPin>> GetInputPins() = 0;
+    virtual std::set<std::shared_ptr<IPin>> GetOutputPins() = 0;
 };
 
 /// @brief Universal pin
@@ -61,7 +59,7 @@ public:
     INode &GetOwningNode() { return m_node; }
 
     /// @brief Obtain connected pin
-    Pin<T> *GetConnectedPin() { return m_connection; }
+    std::shared_ptr<Pin<T>> GetConnectedPin() { return m_connection.lock(); }
 
     /// @brief Set data stored in this pin
     template<class X> void SetData(X &&x) { m_data = std::forward<X>(x); }
@@ -71,35 +69,44 @@ public:
 
     /// @brief Tell if pin is connected
     /// @return 
-    bool IsConnected() override
+    bool IsConnected() const override
     {
-        return (nullptr != m_connection);
+        return !m_connection.expired();
     }
 
     /// @brief Disconnect other pin
     void Disconnect() override
     {
-        if (m_connection)
+        if (!m_connection.expired())
         {
-            m_connection->m_connection = nullptr;
-            m_connection = nullptr;
+            m_connection.lock()->m_connection.reset();
         }
+        m_connection.reset();
+    }
+
+    std::shared_ptr<Pin<T>> shared_from_this()
+    {
+        return std::shared_ptr<Pin<T>>(m_node.shared_from_this(), this);
     }
 
 private:
+    // Node owns this pin
     INode &m_node;
-    Pin<T> *m_connection;
+    
+    // Must be weak, as it is the node that owns the pins
+    std::weak_ptr<Pin<T>> m_connection;
+
     T m_data;
 
 protected:
     /// @brief Create pin attached to specific node
-    Pin(INode &node): m_node(node), m_connection(nullptr), m_data{} {}
+    Pin(INode &node): m_node(node), m_connection{}, m_data{} {}
 
     /// @brief Connect pin to another pin
     void Connect(Pin<T> &pin)
     {
-        m_connection = &pin;
-        pin.m_connection = this;
+        m_connection = pin.shared_from_this();
+        pin.m_connection = shared_from_this();
     }
 };
 
@@ -118,7 +125,7 @@ template<class T> struct InputPin : Pin<T>
     /// @brief Receive data from the other connected pin into this pin
     void ReceiveData()
     {
-        if (auto connectedPin = Pin<T>::GetConnectedPin(); nullptr != connectedPin)
+        if (auto connectedPin = Pin<T>::GetConnectedPin(); connectedPin)
         {
             Pin<T>::SetData(connectedPin->GetData());
         }
@@ -127,7 +134,7 @@ template<class T> struct InputPin : Pin<T>
     /// @brief Propagate processing to connected node
     void PropagateBackwards()
     {
-        if (auto connectedPin = Pin<T>::GetConnectedPin(); nullptr != connectedPin)
+        if (auto connectedPin = Pin<T>::GetConnectedPin(); connectedPin)
         {
             connectedPin->GetOwningNode().ProcessBackwards();
         }
@@ -146,7 +153,7 @@ template<class T> struct OutputPin : Pin<T>
     /// @brief Send data from this pin to the other connected pin
     void SendData()
     {
-        if (auto connectedPin = Pin<T>::GetConnectedPin(); nullptr != connectedPin)
+        if (auto connectedPin = Pin<T>::GetConnectedPin(); connectedPin)
         {
             connectedPin->SetData(Pin<T>::GetData());
         }
@@ -155,7 +162,7 @@ template<class T> struct OutputPin : Pin<T>
     /// @brief Propagate processing to connected node
     void PropagateForwards()
     {
-        if (auto connectedPin = Pin<T>::GetConnectedPin(); nullptr != connectedPin)
+        if (auto connectedPin = Pin<T>::GetConnectedPin(); connectedPin)
         {
             connectedPin->GetOwningNode().ProcessForwards();
         }
@@ -170,7 +177,7 @@ template<class T> void InputPin<T>::Connect(OutputPin<T> &pin) { Pin<T>::Connect
 template<class T> class SourceNode : public INode, public IValueLoader<T>
 {
 public:
-    ~SourceNode() {}
+    ~SourceNode() { std::cout << "~SourceNode()" << std::endl; }
     SourceNode() : m_outputPin{*this}
     {}
 
@@ -188,8 +195,8 @@ public:
     bool HasActiveInputs() override { return false; }
     bool HasActiveOutputs() override { return true; }
 
-    std::set<IPin *> GetInputPins() override { return {}; }
-    std::set<IPin *> GetOutputPins() override { return {&m_outputPin}; }
+    std::set<std::shared_ptr<IPin>> GetInputPins() override { return {}; }
+    std::set<std::shared_ptr<IPin>> GetOutputPins() override { return {m_outputPin.shared_from_this()}; }
 
     void LoadValue(T &&value) override
     {
@@ -207,7 +214,7 @@ private:
 template<class T> class TargetNode : public INode, public IValueHolder<T>
 {
 public:
-    ~TargetNode() {}
+    ~TargetNode() { std::cout << "~TargetNode()" << std::endl; }
     TargetNode() : m_inputPin{*this}
     {}
 
@@ -225,8 +232,8 @@ public:
     bool HasActiveInputs() override { return true; }
     bool HasActiveOutputs() override { return false; }
 
-    std::set<IPin *> GetInputPins() override { return {&m_inputPin}; }
-    std::set<IPin *> GetOutputPins() override { return {}; }
+    std::set<std::shared_ptr<IPin>> GetInputPins() override { return {m_inputPin.shared_from_this()}; }
+    std::set<std::shared_ptr<IPin>> GetOutputPins() override { return {}; }
 
     T const &GetValue() const override
     {
@@ -244,7 +251,7 @@ private:
 template<class X, class Y, class F> class TransformNode : public INode
 {
 public:
-    ~TransformNode() {}
+    ~TransformNode() { std::cout << "~TransformNode()" << std::endl; }
     TransformNode(F f): m_function(std::move(f)), m_inputPin{*this}, m_outputPin{*this} {}
     
     void ProcessBackwards() override
@@ -268,8 +275,8 @@ public:
     bool HasActiveInputs() override { return true; }
     bool HasActiveOutputs() override { return true; }
 
-    std::set<IPin *> GetInputPins() override { return {&m_inputPin}; }
-    std::set<IPin *> GetOutputPins() override { return {&m_outputPin}; }
+    std::set<std::shared_ptr<IPin>> GetInputPins() override { return {m_inputPin.shared_from_this()}; }
+    std::set<std::shared_ptr<IPin>> GetOutputPins() override { return {m_outputPin.shared_from_this()}; }
 
     InputPin<X> &GetInputPin() { return m_inputPin; }
     OutputPin<Y> &GetOutputPin() { return m_outputPin; }
@@ -283,40 +290,42 @@ private:
 class NodeGraph
 {
 public:
+    ~NodeGraph() { std::cout << "~NodeGraph()" << std::endl; }
+
     template<class NodeT>
-    NodeGraph &AddNode(std::unique_ptr<NodeT> &&nodePtr)
+    NodeGraph &AddNode(std::shared_ptr<NodeT> const &nodePtr)
     {
         m_nodes.emplace(std::move(nodePtr));
         return *this;
     }
 
-    std::set<INode *> GetSourceNodes()
+    std::set<std::shared_ptr<INode>> GetSourceNodes()
     {
-        std::set<INode *> sourceNodes{};
+        std::set<std::shared_ptr<INode>> sourceNodes{};
 
         // One could use combination of std::transform() and std::copy_if(), or std::ranges
         for (auto &nodePtr : m_nodes)
         {
-            if (not nodePtr->HasActiveInputs()) { sourceNodes.insert(nodePtr.get()); }
+            if (not nodePtr->HasActiveInputs()) { sourceNodes.insert(nodePtr); }
         }
     
         return std::move(sourceNodes);
     }
 
-    std::set<INode *> GetTargetNodes()
+    std::set<std::shared_ptr<INode>> GetTargetNodes()
     {
-        std::set<INode *> targetNodes{};
+        std::set<std::shared_ptr<INode>> targetNodes{};
 
         for (auto &nodePtr : m_nodes)
         {
-            if (not nodePtr->HasActiveOutputs()) { targetNodes.insert(nodePtr.get()); }
+            if (not nodePtr->HasActiveOutputs()) { targetNodes.insert(nodePtr); }
         }
 
         return std::move(targetNodes);
     }
 
 private:
-    std::set<std::unique_ptr<INode>> m_nodes;
+    std::set<std::shared_ptr<INode>> m_nodes;
 };
 
 struct ExampleDataSample
@@ -359,17 +368,17 @@ void add_example_nodes_to_graph(NodeGraph &graph)
     };
 
     // Let's create node using our transformation function
-    auto transformNodePtr = std::make_unique<TransformNode<
+    auto transformNodePtr = std::make_shared<TransformNode<
         std::shared_ptr<ExampleDataSample>,
         std::shared_ptr<ExampleDataResult>,
         decltype(func)>>(func);
 
     // Now we need some source
-    auto sourceNodePtr = std::make_unique<SourceNode<
+    auto sourceNodePtr = std::make_shared<SourceNode<
         std::shared_ptr<ExampleDataSample>>>();
 
     // And we also need some target
-    auto targetNodePtr = std::make_unique<TargetNode<
+    auto targetNodePtr = std::make_shared<TargetNode<
         std::shared_ptr<ExampleDataResult>>>();
 
     transformNodePtr->GetInputPin().Connect(sourceNodePtr->GetOutputPin());
@@ -381,53 +390,70 @@ void add_example_nodes_to_graph(NodeGraph &graph)
         .AddNode(std::move(sourceNodePtr))
         .AddNode(std::move(targetNodePtr));
 
-    // WARNING !!! At this point unique node pointers are no longer valid
+    // WARNING !!! At this point shared node pointers are no longer valid
 }
 
 } // end of local namespace
 
-void test_s3_dynamic_graph_and_pins()
+void test_s4_dynamic_graph_and_shared_ptr()
 {
-    std::cout << "TEST: test_s3_dynamic_graph_and_pins" << std::endl;
+    std::cout << "TEST: test_s4_dynamic_graph_and_shared_ptr" << std::endl;
 
-    NodeGraph graph{};
+    // We'll demonstrate how shard_ptr to member variable works by borrowing shared_ptr to member variable
+    // and keeping that shared_ptr after destruction of the graph
+    std::shared_ptr<OutputPin<std::shared_ptr<ExampleDataSample>>> sourceOutputPin{};
 
-    add_example_nodes_to_graph(graph);
+    {
+        NodeGraph graph{};
 
-    // We need to find the source node
-    auto sourceNodes = graph.GetSourceNodes();
-    assert(sourceNodes.size() == 1);
+        add_example_nodes_to_graph(graph);
+        
+        std::cout << " == After creating NodeGraph == " << std::endl;
 
-    // and we need to be able to load value into source node
-    auto sourceNode = *std::begin(sourceNodes);
-    auto sourceLoader = dynamic_cast<IValueLoader<std::shared_ptr<ExampleDataSample>> *>(sourceNode);
-    assert(nullptr != sourceLoader);
+        // We need to find the source node
+        auto sourceNodes = graph.GetSourceNodes();
+        assert(sourceNodes.size() == 1);
 
-    // and then we need to get output pin from the source node
-    auto sourceOutputPins = sourceNode->GetOutputPins();
-    assert(sourceOutputPins.size() == 1);
+        // and we need to be able to load value into source node
+        auto sourceNode = *std::begin(sourceNodes);
+        auto sourceLoader = std::dynamic_pointer_cast<IValueLoader<std::shared_ptr<ExampleDataSample>>>(sourceNode);
+        assert(nullptr != sourceLoader);
 
-    // and from that pin we need to be able to get current value in it
-    auto sourceOutputPin = dynamic_cast<OutputPin<std::shared_ptr<ExampleDataSample>> *>(*std::begin(sourceOutputPins));
-    assert(nullptr != sourceOutputPin);
+        // and then we need to get output pin from the source node
+        auto sourceOutputPis = sourceNode->GetOutputPins();
+        assert(sourceOutputPis.size() == 1);
+
+        // and from that pin we need to be able to get current value in it
+        sourceOutputPin = std::dynamic_pointer_cast<OutputPin<std::shared_ptr<ExampleDataSample>>>(*std::begin(sourceOutputPis));
+        assert(nullptr != sourceOutputPin);
+
+        // We need to find target node
+        auto targetNodes = graph.GetTargetNodes();
+        assert(targetNodes.size() == 1);
+
+        // and then we need to be able to get current result from it
+        auto targetNode = *std::begin(targetNodes);
+        auto targetHolder = std::dynamic_pointer_cast<IValueHolder<std::shared_ptr<ExampleDataResult>>>(targetNode);
+
+        std::cout << "sourceOutputPin.isConnected() -> " << sourceOutputPin->IsConnected() << std::endl;
+
+        // Here we will push the value from the source
+        sourceLoader->LoadValue(std::make_shared<ExampleDataSample>(7, 9));
+        sourceNode->ProcessForwards();
+
+        std::cout << "Result of processing forwards: f(" << *sourceOutputPin->GetData() << ") => " << *targetHolder->GetValue() << std::endl;
+
+        // Here we will pull the value from the target
+        sourceLoader->LoadValue(std::make_shared<ExampleDataSample>(11, 5));
+        targetNode->ProcessBackwards();
+
+        std::cout << "Result of processing backwards: f(" << *sourceOutputPin->GetData() << ") => " << *targetHolder->GetValue() << std::endl;
     
-    // We need to find target node
-    auto targetNodes = graph.GetTargetNodes();
-    assert(targetNodes.size() == 1);
-    
-    // and then we need to be able to get current result from it
-    auto targetNode = *std::begin(targetNodes);
-    auto targetHolder = dynamic_cast<IValueHolder<std::shared_ptr<ExampleDataResult>> *>(targetNode);
+        // NOTE: We are exitting this scope so node graph will be destroyed, and all the nodes except source node to which
+        // we still hold shared_ptr in the form of shared_ptr to its member pin.
+    }
 
-    // Here we will push the value from the source
-    sourceLoader->LoadValue(std::make_shared<ExampleDataSample>(7, 9));
-    sourceNode->ProcessForwards();
-    
-    std::cout << "Result of processing forwards: f(" << *sourceOutputPin->GetData() << ") => " << *targetHolder->GetValue() << std::endl;
-    
-    // Here we will pull the value from the target
-    sourceLoader->LoadValue(std::make_shared<ExampleDataSample>(11, 5));
-    targetNode->ProcessBackwards();
-    
-    std::cout << "Result of processing backwards: f(" << *sourceOutputPin->GetData() << ") => " << *targetHolder->GetValue() << std::endl;
+    std::cout << " == After destroying NodeGraph == " << std::endl;
+    std::cout << "sourceOutputPin.owningNode.hasActiveOutputs() -> " << sourceOutputPin->GetOwningNode().HasActiveOutputs() << std::endl;
+    std::cout << "sourceOutputPin.isConnected() -> " << sourceOutputPin->IsConnected() << std::endl;
 }

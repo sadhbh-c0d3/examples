@@ -3,6 +3,7 @@ void test_s1_static_graph();
 void test_s1_static_graph_with_shared_ptr_data();
 void test_s2_dynamic_graph();
 void test_s3_dynamic_graph_and_pins();
+void test_s4_dynamic_graph_and_shared_ptr();
 
 
 int main(int argc, char **argv)
@@ -16,6 +17,9 @@ int main(int argc, char **argv)
 
     // S3: Dynamic Nodes Graph with dynamic pins
     test_s3_dynamic_graph_and_pins();
+
+    // S4: Dynamic graph with dynamic pins via shared_ptr
+    test_s4_dynamic_graph_and_shared_ptr();
 
     return 0;
 }

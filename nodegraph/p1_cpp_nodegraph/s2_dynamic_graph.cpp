@@ -315,6 +315,8 @@ std::pair<
 
 void test_s2_dynamic_graph()
 {
+    std::cout << "TEST: test_s2_dynamic_graph" << std::endl;
+
     NodeGraph graph{};
 
     const auto [sourceNode, targetNode] = add_example_nodes_to_graph(graph);

@@ -226,6 +226,8 @@ private:
 
 void test_s1_static_graph()
 {
+    std::cout << "TEST: test_s1_static_graph" << std::endl;
+
     // Let's declare some transformation function: int -> double
     auto func = [](int x) { return x * 1.5; };
 
@@ -267,6 +269,8 @@ std::ostream &operator <<(std::ostream &os, std::tuple<T, T> const &x)
 
 void test_s1_static_graph_with_shared_ptr_data()
 {
+    std::cout << "TEST: test_s1_static_graph_with_shared_ptr_data" << std::endl;
+
     auto func = [](std::shared_ptr<std::tuple<int, int>> const &x)
     {
         const auto [a, b] = *x;
