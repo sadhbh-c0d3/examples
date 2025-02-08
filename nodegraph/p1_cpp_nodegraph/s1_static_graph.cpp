@@ -224,7 +224,7 @@ private:
 
 } // end of local namespace
 
-void test_int_to_double()
+void test_s1_static_graph()
 {
     // Let's declare some transformation function: int -> double
     auto func = [](int x) { return x * 1.5; };
@@ -265,7 +265,7 @@ std::ostream &operator <<(std::ostream &os, std::tuple<T, T> const &x)
     return os << "[" << a << ", " << b << "]";
 }
 
-void test_with_shared_ptr()
+void test_s1_static_graph_with_shared_ptr_data()
 {
     auto func = [](std::shared_ptr<std::tuple<int, int>> const &x)
     {

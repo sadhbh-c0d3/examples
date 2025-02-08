@@ -1,34 +1,64 @@
 #include<memory>
 #include<set>
 #include<iostream>
+#include<assert.h>
 
 // local namespace
 namespace {
 
-/// @brief General node interface
-class Node
+/// @brief An interface capable of loading a value into somewhere
+/// @tparam T 
+template<class T> struct IValueLoader
 {
-public:
-    virtual ~Node() {}
+    virtual ~IValueLoader() {}
 
-    Node() {}
-    Node(Node const &) = delete;
-    Node(Node &&) = delete;
+    virtual void LoadValue(T &&value) = 0;
+};
 
-    Node &operator= (Node const &) = delete;
-    Node &operator= (Node &&) = delete;
+/// @brief An interface capable of obtaining a value from somewhere
+/// @tparam T 
+template<class T> struct IValueHolder
+{
+    virtual ~IValueHolder() {}
+
+    virtual T const &GetValue() const = 0;
+};
+
+struct IPin
+{
+    virtual bool IsConnected() = 0;
+    virtual void Disconnect() = 0;
+};
+
+/// @brief General node interface
+struct INode
+{
+    virtual ~INode() {}
+
+    INode() {}
+    INode(INode const &) = delete;
+    INode(INode &&) = delete;
+
+    INode &operator= (INode const &) = delete;
+    INode &operator= (INode &&) = delete;
 
     virtual void ProcessForwards() = 0;
     virtual void ProcessBackwards() = 0;
+
+    virtual bool HasActiveInputs() = 0;
+    virtual bool HasActiveOutputs() = 0;
+
+    virtual std::set<IPin*> GetInputPins() = 0;
+    virtual std::set<IPin*> GetOutputPins() = 0;
 };
 
 /// @brief Universal pin
 /// @tparam T Type of data stored in this pin
-template<class T> class Pin
+template<class T> class Pin : public IPin
 {
 public:
     /// @brief Obtain owning node
-    Node &GetOwningNode() { return m_node; }
+    INode &GetOwningNode() { return m_node; }
 
     /// @brief Obtain connected pin
     Pin<T> *GetConnectedPin() { return m_connection; }
@@ -39,8 +69,15 @@ public:
     /// @brief Get data stored in this pin
     T const & GetData() const { return m_data; }
 
+    /// @brief Tell if pin is connected
+    /// @return 
+    bool IsConnected() override
+    {
+        return (nullptr != m_connection);
+    }
+
     /// @brief Disconnect other pin
-    void Disconnect()
+    void Disconnect() override
     {
         if (m_connection)
         {
@@ -50,13 +87,13 @@ public:
     }
 
 private:
-    Node &m_node;
+    INode &m_node;
     Pin<T> *m_connection;
     T m_data;
 
 protected:
     /// @brief Create pin attached to specific node
-    Pin(Node &node): m_node(node), m_connection(nullptr), m_data{} {}
+    Pin(INode &node): m_node(node), m_connection(nullptr), m_data{} {}
 
     /// @brief Connect pin to another pin
     void Connect(Pin<T> &pin)
@@ -73,7 +110,7 @@ template<class T> struct OutputPin;
 /// @tparam T Type of data input
 template<class T> struct InputPin : Pin<T>
 {
-    InputPin(Node &node): Pin<T>(node) {}
+    InputPin(INode &node): Pin<T>(node) {}
 
     /// @brief Connect output pin (implemented below to solve catch22)
     void Connect(OutputPin<T> &pin);
@@ -101,7 +138,7 @@ template<class T> struct InputPin : Pin<T>
 /// @tparam T Type of data output
 template<class T> struct OutputPin : Pin<T>
 {
-    OutputPin(Node &node): Pin<T>(node) {}
+    OutputPin(INode &node): Pin<T>(node) {}
 
     /// @brief Connect output pin
     void Connect(InputPin<T> &pin) { Pin<T>::Connect(pin); }
@@ -128,9 +165,9 @@ template<class T> struct OutputPin : Pin<T>
 // Implementation of InputPin::Connect
 template<class T> void InputPin<T>::Connect(OutputPin<T> &pin) { Pin<T>::Connect(pin); }
 
-/// @brief Node that will provide data
+/// @brief INode that will provide data
 /// @tparam T Type of source data
-template<class T> class SourceNode : public Node
+template<class T> class SourceNode : public INode, public IValueLoader<T>
 {
 public:
     ~SourceNode() {}
@@ -148,9 +185,15 @@ public:
         // This could be loading new value from somewhere
     }
     
-    template<class X> void LoadValue(X &&x)
+    bool HasActiveInputs() override { return false; }
+    bool HasActiveOutputs() override { return true; }
+
+    std::set<IPin *> GetInputPins() override { return {}; }
+    std::set<IPin *> GetOutputPins() override { return {&m_outputPin}; }
+
+    void LoadValue(T &&value) override
     {
-        GetOutputPin().SetData(std::forward<X>(x));
+        GetOutputPin().SetData(std::move(value));
     }
 
     OutputPin<T> &GetOutputPin() { return m_outputPin; }
@@ -159,9 +202,9 @@ private:
     OutputPin<T> m_outputPin;
 };
 
-/// @brief Node that will receive final result of all procesing
+/// @brief INode that will receive final result of all procesing
 /// @tparam T Type of final result data
-template<class T> class TargetNode : public Node
+template<class T> class TargetNode : public INode, public IValueHolder<T>
 {
 public:
     ~TargetNode() {}
@@ -179,7 +222,13 @@ public:
         GetInputPin().ReceiveData();
     }
     
-    const T &GetValue() const 
+    bool HasActiveInputs() override { return true; }
+    bool HasActiveOutputs() override { return false; }
+
+    std::set<IPin *> GetInputPins() override { return {&m_inputPin}; }
+    std::set<IPin *> GetOutputPins() override { return {}; }
+
+    T const &GetValue() const override
     {
         // Process(); -- should we pull?
         return GetInputPin().GetData();
@@ -192,7 +241,7 @@ private:
     InputPin<T> m_inputPin;
 };
 
-template<class X, class Y, class F> class TransformNode : public Node
+template<class X, class Y, class F> class TransformNode : public INode
 {
 public:
     ~TransformNode() {}
@@ -216,6 +265,12 @@ public:
         GetOutputPin().PropagateForwards();
     }
     
+    bool HasActiveInputs() override { return true; }
+    bool HasActiveOutputs() override { return true; }
+
+    std::set<IPin *> GetInputPins() override { return {&m_inputPin}; }
+    std::set<IPin *> GetOutputPins() override { return {&m_outputPin}; }
+
     InputPin<X> &GetInputPin() { return m_inputPin; }
     OutputPin<Y> &GetOutputPin() { return m_outputPin; }
 
@@ -235,8 +290,33 @@ public:
         return *this;
     }
 
+    std::set<INode *> GetSourceNodes()
+    {
+        std::set<INode *> sourceNodes{};
+
+        // One could use combination of std::transform() and std::copy_if(), or std::ranges
+        for (auto &nodePtr : m_nodes)
+        {
+            if (not nodePtr->HasActiveInputs()) { sourceNodes.insert(nodePtr.get()); }
+        }
+    
+        return std::move(sourceNodes);
+    }
+
+    std::set<INode *> GetTargetNodes()
+    {
+        std::set<INode *> targetNodes{};
+
+        for (auto &nodePtr : m_nodes)
+        {
+            if (not nodePtr->HasActiveOutputs()) { targetNodes.insert(nodePtr.get()); }
+        }
+
+        return std::move(targetNodes);
+    }
+
 private:
-    std::set<std::unique_ptr<Node>> m_nodes;
+    std::set<std::unique_ptr<INode>> m_nodes;
 };
 
 struct ExampleDataSample
@@ -267,9 +347,7 @@ std::ostream &operator <<(std::ostream &os, ExampleDataResult const &data)
     return os << "[ u: " << data.u << ", v: " << data.v << "]";
 }
 
-std::pair<
-    SourceNode<std::shared_ptr<ExampleDataSample>> &,
-    TargetNode<std::shared_ptr<ExampleDataResult>> &> add_example_nodes_to_graph(NodeGraph &graph)
+void add_example_nodes_to_graph(NodeGraph &graph)
 {
     // Func lives only within current scope.
     // Note that it gets consumed by TrasformNode constructor.
@@ -297,9 +375,6 @@ std::pair<
     transformNodePtr->GetInputPin().Connect(sourceNodePtr->GetOutputPin());
     transformNodePtr->GetOutputPin().Connect(targetNodePtr->GetInputPin());
 
-    auto &sourceNode = *sourceNodePtr;
-    auto &targetNode = *targetNodePtr;
-
     // Move ownership of the nodes into node graph
     graph
         .AddNode(std::move(transformNodePtr))
@@ -307,27 +382,50 @@ std::pair<
         .AddNode(std::move(targetNodePtr));
 
     // WARNING !!! At this point unique node pointers are no longer valid
-
-    return {sourceNode, targetNode};
 }
 
 } // end of local namespace
 
-void test_s2_dynamic_graph()
+void test_s3_dynamic_graph_and_pins()
 {
     NodeGraph graph{};
 
-    const auto [sourceNode, targetNode] = add_example_nodes_to_graph(graph);
+    add_example_nodes_to_graph(graph);
+
+    // We need to find the source node
+    auto sourceNodes = graph.GetSourceNodes();
+    assert(sourceNodes.size() == 1);
+
+    // and we need to be able to load value into source node
+    auto sourceNode = *std::begin(sourceNodes);
+    auto sourceLoader = dynamic_cast<IValueLoader<std::shared_ptr<ExampleDataSample>> *>(sourceNode);
+    assert(nullptr != sourceLoader);
+
+    // and then we need to get output pin from the source node
+    auto sourceOutputPis = sourceNode->GetOutputPins();
+    assert(sourceOutputPis.size() == 1);
+
+    // and from that pin we need to be able to get current value in it
+    auto sourceOutputPin = dynamic_cast<OutputPin<std::shared_ptr<ExampleDataSample>> *>(*std::begin(sourceOutputPis));
+    assert(nullptr != sourceOutputPin);
+    
+    // We need to find target node
+    auto targetNodes = graph.GetTargetNodes();
+    assert(targetNodes.size() == 1);
+    
+    // and then we need to be able to get current result from it
+    auto targetNode = *std::begin(targetNodes);
+    auto targetHolder = dynamic_cast<IValueHolder<std::shared_ptr<ExampleDataResult>> *>(targetNode);
 
     // Here we will push the value from the source
-    sourceNode.LoadValue(std::make_shared<ExampleDataSample>(7, 9));
-    sourceNode.ProcessForwards();
+    sourceLoader->LoadValue(std::make_shared<ExampleDataSample>(7, 9));
+    sourceNode->ProcessForwards();
     
-    std::cout << "Result of processing forwards: f(" << *sourceNode.GetOutputPin().GetData() << ") => " << *targetNode.GetValue() << std::endl;
+    std::cout << "Result of processing forwards: f(" << *sourceOutputPin->GetData() << ") => " << *targetHolder->GetValue() << std::endl;
     
     // Here we will pull the value from the target
-    sourceNode.LoadValue(std::make_shared<ExampleDataSample>(11, 5));
-    targetNode.ProcessBackwards();
+    sourceLoader->LoadValue(std::make_shared<ExampleDataSample>(11, 5));
+    targetNode->ProcessBackwards();
     
-    std::cout << "Result of processing backwards: f(" << *sourceNode.GetOutputPin().GetData() << ") => " << *targetNode.GetValue() << std::endl;
+    std::cout << "Result of processing backwards: f(" << *sourceOutputPin->GetData() << ") => " << *targetHolder->GetValue() << std::endl;
 }
