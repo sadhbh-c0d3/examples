@@ -10,24 +10,32 @@ namespace {
 /// @tparam T 
 template<class T> struct IValueLoader
 {
-    virtual ~IValueLoader() {}
-
     virtual void LoadValue(T &&value) = 0;
+
+protected:
+    // Only derived class can call this destructor
+    ~IValueLoader() {}
 };
 
 /// @brief An interface capable of obtaining a value from somewhere
 /// @tparam T 
 template<class T> struct IValueHolder
 {
-    virtual ~IValueHolder() {}
-
     virtual T const &GetValue() const = 0;
+
+protected:
+    // Only derived class can call this destructor
+    ~IValueHolder() {}
 };
 
 struct IPin
 {
     virtual bool IsConnected() const = 0;
     virtual void Disconnect() = 0;
+
+protected:
+    // Only derived class can call this destructor
+    ~IPin() {}
 };
 
 /// @brief General node interface
@@ -48,6 +56,10 @@ struct INode : std::enable_shared_from_this<INode>
 
     virtual std::set<std::shared_ptr<IPin>> GetInputPins() = 0;
     virtual std::set<std::shared_ptr<IPin>> GetOutputPins() = 0;
+
+protected:
+    // Only derived class can call this destructor
+    ~INode() {}
 };
 
 /// @brief Universal pin
