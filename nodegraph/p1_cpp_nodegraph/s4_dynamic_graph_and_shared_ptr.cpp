@@ -51,8 +51,8 @@ struct INode : std::enable_shared_from_this<INode>
     virtual void ProcessForwards() = 0;
     virtual void ProcessBackwards() = 0;
 
-    virtual bool HasActiveInputs() = 0;
-    virtual bool HasActiveOutputs() = 0;
+    virtual bool HasInputs() = 0;
+    virtual bool HasOutputs() = 0;
 
     virtual std::set<std::shared_ptr<IPin>> GetInputPins() = 0;
     virtual std::set<std::shared_ptr<IPin>> GetOutputPins() = 0;
@@ -204,8 +204,8 @@ public:
         // This could be loading new value from somewhere
     }
     
-    bool HasActiveInputs() override { return false; }
-    bool HasActiveOutputs() override { return true; }
+    bool HasInputs() override { return false; }
+    bool HasOutputs() override { return true; }
 
     std::set<std::shared_ptr<IPin>> GetInputPins() override { return {}; }
     std::set<std::shared_ptr<IPin>> GetOutputPins() override { return {m_outputPin.shared_from_this()}; }
@@ -241,8 +241,8 @@ public:
         GetInputPin().ReceiveData();
     }
     
-    bool HasActiveInputs() override { return true; }
-    bool HasActiveOutputs() override { return false; }
+    bool HasInputs() override { return true; }
+    bool HasOutputs() override { return false; }
 
     std::set<std::shared_ptr<IPin>> GetInputPins() override { return {m_inputPin.shared_from_this()}; }
     std::set<std::shared_ptr<IPin>> GetOutputPins() override { return {}; }
@@ -284,8 +284,8 @@ public:
         GetOutputPin().PropagateForwards();
     }
     
-    bool HasActiveInputs() override { return true; }
-    bool HasActiveOutputs() override { return true; }
+    bool HasInputs() override { return true; }
+    bool HasOutputs() override { return true; }
 
     std::set<std::shared_ptr<IPin>> GetInputPins() override { return {m_inputPin.shared_from_this()}; }
     std::set<std::shared_ptr<IPin>> GetOutputPins() override { return {m_outputPin.shared_from_this()}; }
@@ -318,7 +318,7 @@ public:
         // One could use combination of std::transform() and std::copy_if(), or std::ranges
         for (auto &nodePtr : m_nodes)
         {
-            if (not nodePtr->HasActiveInputs()) { sourceNodes.insert(nodePtr); }
+            if (not nodePtr->HasInputs()) { assert(nodePtr->HasOutputs()); sourceNodes.insert(nodePtr); }
         }
     
         return std::move(sourceNodes);
@@ -330,7 +330,7 @@ public:
 
         for (auto &nodePtr : m_nodes)
         {
-            if (not nodePtr->HasActiveOutputs()) { targetNodes.insert(nodePtr); }
+            if (not nodePtr->HasOutputs()) { assert(nodePtr->HasInputs()); targetNodes.insert(nodePtr); }
         }
 
         return std::move(targetNodes);
@@ -432,11 +432,11 @@ void test_s4_dynamic_graph_and_shared_ptr()
         assert(nullptr != sourceLoader);
 
         // and then we need to get output pin from the source node
-        auto sourceOutputPis = sourceNode->GetOutputPins();
-        assert(sourceOutputPis.size() == 1);
+        auto sourceOutputPins = sourceNode->GetOutputPins();
+        assert(sourceOutputPins.size() == 1);
 
         // and from that pin we need to be able to get current value in it
-        sourceOutputPin = std::dynamic_pointer_cast<OutputPin<std::shared_ptr<ExampleDataSample>>>(*std::begin(sourceOutputPis));
+        sourceOutputPin = std::dynamic_pointer_cast<OutputPin<std::shared_ptr<ExampleDataSample>>>(*std::begin(sourceOutputPins));
         assert(nullptr != sourceOutputPin);
 
         // We need to find target node
@@ -466,6 +466,6 @@ void test_s4_dynamic_graph_and_shared_ptr()
     }
 
     std::cout << " == After destroying NodeGraph == " << std::endl;
-    std::cout << "sourceOutputPin.owningNode.hasActiveOutputs() -> " << sourceOutputPin->GetOwningNode().HasActiveOutputs() << std::endl;
+    std::cout << "sourceOutputPin.owningNode.hasActiveOutputs() -> " << sourceOutputPin->GetOwningNode().HasOutputs() << std::endl;
     std::cout << "sourceOutputPin.isConnected() -> " << sourceOutputPin->IsConnected() << std::endl;
 }
