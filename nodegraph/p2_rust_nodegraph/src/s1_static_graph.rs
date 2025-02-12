@@ -16,6 +16,14 @@ struct GraphNodePin<'a, T> where T: Clone + Default
 
 impl<'a, T> GraphNodePin<'a, T> where T: Clone + Default
 {
+    pub fn get_node(&'a self) -> Option<&'a dyn GraphNode<'a>> {
+        self.node.borrow().clone()
+    }
+
+    pub fn get_connection(&'a self) -> Option<&'a GraphNodePin<'a, T>> {
+        self.connection.borrow().clone()
+    }
+
     pub fn setup(&'a self, node: &'a dyn GraphNode<'a>) {
         self.node.replace(node.into());
     }
@@ -47,14 +55,14 @@ impl<'a, T> GraphNodeInputPin<'a, T> where T: Clone + Default
     }
 
     pub fn receive_data(&'a self) {
-        if let Some(&input) = self.pin.connection.borrow().as_ref() {
+        if let Some(input) = self.pin.get_connection() {
             self.pin.set_data(input.get_data());
         }
     }
 
     pub fn propagate_backwards(&'a self) {
-        if let Some(&input) = self.pin.connection.borrow().as_ref() {
-            if let Some(&node) = input.node.borrow().as_ref() {
+        if let Some(input) = self.pin.get_connection() {
+            if let Some(node) = input.get_node() {
                 node.process_backwards();
             }
         }
@@ -75,14 +83,14 @@ impl<'a, T> GraphNodeOutputPin<'a, T> where T: Clone + Default
     }
 
     pub fn send_data(&'a self) {
-        if let Some(&output) = self.pin.connection.borrow().as_ref() {
+        if let Some(output) = self.pin.get_connection() {
             output.set_data(self.pin.get_data());
         }
     }
     
     pub fn propagate_forwards(&'a self) {
-        if let Some(&output) = self.pin.connection.borrow().as_ref() {
-            if let Some(&node) = output.node.borrow().as_ref() {
+        if let Some(output) = self.pin.get_connection() {
+            if let Some(node) = output.get_node() {
                 node.process_forwards();
             }
         }
