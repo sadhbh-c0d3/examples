@@ -1,0 +1,6 @@
+[package]
+name = "p2_rust_nodegraph"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
