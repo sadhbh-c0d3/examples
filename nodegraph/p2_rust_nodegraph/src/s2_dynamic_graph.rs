@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 
 
-trait GraphNode<'a>
+pub trait GraphNode<'a>
 {
     fn process_forwards(&self);
     fn process_backwards(&self);
@@ -19,11 +19,11 @@ struct GraphNodePin<'a, T> where T: Clone + Default
 impl<'a, T> GraphNodePin<'a, T> where T: Clone + Default
 {
     pub fn get_node(&self) -> Option<&'a dyn GraphNode> {
-        self.node.borrow().clone()
+        *self.node.borrow()
     }
 
     pub fn get_connection(&self) -> Option<&'a GraphNodePin<'a, T>> {
-        self.connection.borrow().clone()
+        *self.connection.borrow()
     }
 
     pub fn setup(&self, node: &'a dyn GraphNode<'a>) {
@@ -44,7 +44,7 @@ impl<'a, T> GraphNodePin<'a, T> where T: Clone + Default
 }
 
 #[derive(Default)]
-struct GraphNodeInputPin<'a, T> where T: Clone + Default
+pub struct GraphNodeInputPin<'a, T> where T: Clone + Default
 {
     pin: GraphNodePin<'a, T>
 }
@@ -72,7 +72,7 @@ impl<'a, T> GraphNodeInputPin<'a, T> where T: Clone + Default
 }
 
 #[derive(Default)]
-struct GraphNodeOutputPin<'a, T> where T: Clone + Default
+pub struct GraphNodeOutputPin<'a, T> where T: Clone + Default
 {
     pin: GraphNodePin<'a, T>
 }
@@ -100,7 +100,7 @@ impl<'a, T> GraphNodeOutputPin<'a, T> where T: Clone + Default
 }
 
 #[derive(Default)]
-struct SourceGraphNode<'a, T> where T: Clone + Default
+pub struct SourceGraphNode<'a, T> where T: Clone + Default
 {
     pub output_pin: GraphNodeOutputPin<'a, T>
 }
@@ -129,7 +129,7 @@ impl<'a, T> GraphNode<'a> for SourceGraphNode<'a, T> where T: Clone + Default
 }
 
 #[derive(Default)]
-struct TargetGraphNode<'a, T> where T: Clone + Default
+pub struct TargetGraphNode<'a, T> where T: Clone + Default
 {
     pub input_pin: GraphNodeInputPin<'a, T>
 }
@@ -157,7 +157,7 @@ impl<'a, T> GraphNode<'a> for TargetGraphNode<'a, T> where T: Clone + Default
     }
 }
 
-struct TransformGraphNode<'a, X, Y, F>
+pub struct TransformGraphNode<'a, X, Y, F>
 where
     X: Clone + Default,
     Y: Clone + Default,
@@ -192,11 +192,11 @@ where
     fn process_backwards(&self) {
         self.input_pin.propagate_backwards();
         self.input_pin.receive_data();
-        self.output_pin.pin.set_data((&self.func)(self.input_pin.pin.get_data()));
+        self.output_pin.pin.set_data((self.func)(self.input_pin.pin.get_data()));
     }
 
     fn process_forwards(&self) {
-        self.output_pin.pin.set_data((&self.func)(self.input_pin.pin.get_data()));
+        self.output_pin.pin.set_data((self.func)(self.input_pin.pin.get_data()));
         self.output_pin.send_data();
         self.output_pin.propagate_forwards();
     }
@@ -207,8 +207,8 @@ where
     }
 }
 
-struct NodeGraph<'a> {
-    nodes: Vec<Box<dyn GraphNode<'a> + 'a>>
+pub struct NodeGraph<'a> {
+    pub nodes: Vec<Box<dyn GraphNode<'a> + 'a>>
 }
 
 #[test]
@@ -219,7 +219,7 @@ fn test_me() {
     let target_node = TargetGraphNode::<'_, i32>::default();
     let transform_node = TransformGraphNode::new(foo);
 
-    let graph = NodeGraph {
+    let _graph = NodeGraph {
         nodes: vec![
             Box::new(source_node),
             Box::new(target_node),

@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 
-trait GraphNode<'a>
+pub trait GraphNode<'a>
 {
     fn process_forwards(&'a self);
     fn process_backwards(&'a self);
@@ -17,11 +17,11 @@ struct GraphNodePin<'a, T> where T: Clone + Default
 impl<'a, T> GraphNodePin<'a, T> where T: Clone + Default
 {
     pub fn get_node(&'a self) -> Option<&'a dyn GraphNode<'a>> {
-        self.node.borrow().clone()
+        *self.node.borrow()
     }
 
     pub fn get_connection(&'a self) -> Option<&'a GraphNodePin<'a, T>> {
-        self.connection.borrow().clone()
+        *self.connection.borrow()
     }
 
     pub fn setup(&'a self, node: &'a dyn GraphNode<'a>) {
@@ -42,7 +42,7 @@ impl<'a, T> GraphNodePin<'a, T> where T: Clone + Default
 }
 
 #[derive(Default)]
-struct GraphNodeInputPin<'a, T> where T: Clone + Default
+pub struct GraphNodeInputPin<'a, T> where T: Clone + Default
 {
     pin: GraphNodePin<'a, T>
 }
@@ -70,7 +70,7 @@ impl<'a, T> GraphNodeInputPin<'a, T> where T: Clone + Default
 }
 
 #[derive(Default)]
-struct GraphNodeOutputPin<'a, T> where T: Clone + Default
+pub struct GraphNodeOutputPin<'a, T> where T: Clone + Default
 {
     pin: GraphNodePin<'a, T>
 }
@@ -98,7 +98,7 @@ impl<'a, T> GraphNodeOutputPin<'a, T> where T: Clone + Default
 }
 
 #[derive(Default)]
-struct SourceGraphNode<'a, T> where T: Clone + Default
+pub struct SourceGraphNode<'a, T> where T: Clone + Default
 {
     pub output_pin: GraphNodeOutputPin<'a, T>
 }
@@ -127,7 +127,7 @@ impl<'a, T> GraphNode<'a> for SourceGraphNode<'a, T> where T: Clone + Default
 }
 
 #[derive(Default)]
-struct TargetGraphNode<'a, T> where T: Clone + Default
+pub struct TargetGraphNode<'a, T> where T: Clone + Default
 {
     pub input_pin: GraphNodeInputPin<'a, T>
 }
@@ -155,7 +155,7 @@ impl<'a, T> GraphNode<'a> for TargetGraphNode<'a, T> where T: Clone + Default
     }
 }
 
-struct TransformGraphNode<'a, X, Y, F>
+pub struct TransformGraphNode<'a, X, Y, F>
 where
     X: Clone + Default,
     Y: Clone + Default,
@@ -195,11 +195,11 @@ where
     fn process_backwards(&'a self) {
         self.input_pin.propagate_backwards();
         self.input_pin.receive_data();
-        self.output_pin.pin.set_data((&self.func)(self.input_pin.pin.get_data()));
+        self.output_pin.pin.set_data((self.func)(self.input_pin.pin.get_data()));
     }
 
     fn process_forwards(&'a self) {
-        self.output_pin.pin.set_data((&self.func)(self.input_pin.pin.get_data()));
+        self.output_pin.pin.set_data((self.func)(self.input_pin.pin.get_data()));
         self.output_pin.send_data();
         self.output_pin.propagate_forwards();
     }
