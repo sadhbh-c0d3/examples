@@ -190,7 +190,7 @@ pub struct SourceGraphNode<T> where T: Clone + Default + 'static
 
 impl<T> SourceGraphNode<T> where T: Clone + Default + 'static
 {
-    pub fn new() -> Rc<Box<dyn GraphNode>> {
+    pub fn new_rc() -> Rc<Box<dyn GraphNode>> {
         Rc::new_cyclic(|me| {
             Box::new(Self {
                     output_pin: GraphNodeOutputPin {
@@ -232,7 +232,7 @@ pub struct TargetGraphNode<T> where T: Clone + Default + 'static
 
 impl<T> TargetGraphNode<T> where T: Clone + Default
 {
-    pub fn new() -> Rc<Box<dyn GraphNode>> {
+    pub fn new_rc() -> Rc<Box<dyn GraphNode>> {
         Rc::new_cyclic(|me| {
             Box::new(Self {
                     input_pin: GraphNodeInputPin {
@@ -284,7 +284,7 @@ where
     Y: Clone + Default + 'static,
     F: Fn(X) -> Y
 {
-    pub fn new(func: F) -> Rc<Box<dyn GraphNode>> {
+    pub fn new_rc(func: F) -> Rc<Box<dyn GraphNode>> {
         Rc::new_cyclic(|me| {
             Box::new(Self {
                     input_pin: GraphNodeInputPin {
@@ -330,32 +330,32 @@ where
 }
 
 pub struct NodeGraph {
-    nodes: Vec<Rc<Box<dyn GraphNode<> + >>>
+    nodes: Vec<Rc<Box<dyn GraphNode>>>
 }
 
 impl NodeGraph {
-    pub fn new(nodes: Vec<Rc<Box<dyn GraphNode<> + >>>) -> Self {
+    pub fn new(nodes: Vec<Rc<Box<dyn GraphNode>>>) -> Self {
         Self {
             nodes
         }
     }
 
-    pub fn get_source_nodes(&self) -> Vec<Rc<Box<dyn GraphNode<> + >>> {
-        self.nodes.iter().map(|node| node.clone()).filter(|node| {
+    pub fn get_source_nodes(&self) -> Vec<Rc<Box<dyn GraphNode>>> {
+        self.nodes.iter().filter(|node| {
             node.get_inputs().is_none() && node.get_outputs().is_some()
-        }).collect()
+        }).cloned().collect()
     }
     
-    pub fn get_target_nodes(&self) -> Vec<Rc<Box<dyn GraphNode<> + >>> {
-        self.nodes.iter().map(|node| node.clone()).filter(|node| {
+    pub fn get_target_nodes(&self) -> Vec<Rc<Box<dyn GraphNode>>> {
+        self.nodes.iter().filter(|node| {
             node.get_inputs().is_some() && node.get_outputs().is_none()
-        }).collect()
+        }).cloned().collect()
     }
     
-    pub fn get_transform_nodes(&self) -> Vec<Rc<Box<dyn GraphNode<> + >>> {
-        self.nodes.iter().map(|node| node.clone()).filter(|node| {
+    pub fn get_transform_nodes(&self) -> Vec<Rc<Box<dyn GraphNode>>> {
+        self.nodes.iter().filter(|node| {
             node.get_inputs().is_some() && node.get_outputs().is_some()
-        }).collect()
+        }).cloned().collect()
     }
 }
 
@@ -363,17 +363,14 @@ impl NodeGraph {
 fn build_some_graph() -> NodeGraph {
     let foo = |x: i32| -> i32 { x * x };
 
-    let source_node = SourceGraphNode::<i32>::new();
-    let target_node = TargetGraphNode::<i32>::new();
-    let transform_node = TransformGraphNode::new(foo);
+    let source_node = SourceGraphNode::<i32>::new_rc();
+    let target_node = TargetGraphNode::<i32>::new_rc();
+    let transform_node = TransformGraphNode::new_rc(foo);
 
-    NodeGraph {
-        nodes: vec![
-            source_node,
-            target_node,
-            transform_node
-        ]
-    }
+    NodeGraph::new(vec![
+        source_node,
+        target_node,
+        transform_node])
 }
 
 #[cfg(test)]
