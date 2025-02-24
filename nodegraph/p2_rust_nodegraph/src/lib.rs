@@ -4,3 +4,5 @@ pub mod s3_dynamic_graph_and_rc;
 pub mod s4_dynamic_graph_and_fork;
 pub mod s4_dynamic_graph_and_fork_fix;
 pub mod s5_dynamic_graph_cleanup;
+pub mod s6a_dynamic_graph_arc;
+pub mod s6b_dynamic_graph_arc;
