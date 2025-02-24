@@ -122,13 +122,11 @@ impl<T> GraphNodePinBase for GraphNodeInputPin<T> where T: Clone + Default + 'st
     }
 
     fn disconnect(&self) {
-        let connection = (*self.connection.read().unwrap()).clone();
+        let connection = self.get_connection();
         *self.connection.write().unwrap() = None;
 
-        if let Some(output_weak) = connection {
-            if let Some(output) = output_weak.upgrade() {
-                output.disconnect_pin(self);
-            }
+        if let Some(output) = connection {
+            output.disconnect_pin(self);
         }
     }
 

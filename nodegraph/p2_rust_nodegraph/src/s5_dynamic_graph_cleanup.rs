@@ -14,8 +14,8 @@ impl_downcast!(GraphNodePinBase);
 
 pub trait GraphNode : Downcast
 {
-    fn process_forwards(&mut self);
-    fn process_backwards(&mut self);
+    fn process_forwards(&self);
+    fn process_backwards(&self);
 
     fn get_inputs(&self) -> Option<Vec<Rc<RefCell<dyn GraphNodePinBase>>>>;
     fn get_outputs(&self) -> Option<Vec<Rc<RefCell<dyn GraphNodePinBase>>>>;
@@ -25,20 +25,20 @@ impl_downcast!(GraphNode);
 
 struct GraphNodePin<T> where T: Clone + Default
 {
-    node: Weak<RefCell<dyn GraphNode>>,
+    node: Weak<dyn GraphNode>,
     data: T
 }
 
 impl<T> GraphNodePin<T> where T: Clone + Default + 'static
 {
-    pub fn new(node: Weak<RefCell<dyn GraphNode>>) -> Self {
+    pub fn new(node: Weak<dyn GraphNode>) -> Self {
         Self {
             node,
             data: Default::default()
         }
     }
 
-    pub fn get_node(&self) -> Option<Rc<RefCell<dyn GraphNode>>> {
+    pub fn get_node(&self) -> Option<Rc<dyn GraphNode>> {
         self.node.upgrade()
     }
 
@@ -60,7 +60,7 @@ pub struct GraphNodeInputPin<T> where T: Clone + Default + 'static
 
 impl<T> GraphNodeInputPin<T> where T: Clone + Default + 'static
 {
-    pub fn new_rc(node: Weak<RefCell<dyn GraphNode>>) -> Rc<RefCell<Self>> {
+    pub fn new_rc(node: Weak<dyn GraphNode>) -> Rc<RefCell<Self>> {
         Rc::new_cyclic(|me|{
             RefCell::new(Self {
                 pin: GraphNodePin::new(node),
@@ -89,16 +89,16 @@ impl<T> GraphNodeInputPin<T> where T: Clone + Default + 'static
         }
     }
 
-    fn get_output_node(&self) -> Option<Rc<RefCell<dyn GraphNode>>> {
+    fn get_output_node(&self) -> Option<Rc<dyn GraphNode>> {
         match self.get_connection() {
             Some(output) => output.borrow().pin.get_node().clone(),
             _ => None
         }
     }
 
-    pub fn propagate_backwards(&mut self) {
+    pub fn propagate_backwards(&self) {
         if let Some(node) = self.get_output_node() {
-            node.borrow_mut().process_backwards();
+            node.process_backwards();
         }
     }
 }
@@ -143,7 +143,7 @@ pub struct GraphNodeOutputPin<T> where T: Clone + Default + 'static
 
 impl<T> GraphNodeOutputPin<T> where T: Clone + Default + 'static
 {
-    pub fn new_rc(node: Weak<RefCell<dyn GraphNode>>) -> Rc<RefCell<Self>> {
+    pub fn new_rc(node: Weak<dyn GraphNode>) -> Rc<RefCell<Self>> {
         Rc::new_cyclic(|me|{
             RefCell::new(Self {
                 pin: GraphNodePin::new(node),
@@ -178,10 +178,9 @@ impl<T> GraphNodeOutputPin<T> where T: Clone + Default + 'static
         }
     }
     
-    pub fn propagate_forwards(&mut self) {
+    pub fn propagate_forwards(&self) {
         for input in self.get_connections().iter() {
             if let Some(node) = input.borrow().pin.get_node() {
-                let mut node = node.borrow_mut();
                 node.process_forwards();
             }
         }
@@ -226,28 +225,28 @@ pub struct SourceGraphNode<T> where T: Clone + Default + 'static
 
 impl<T> SourceGraphNode<T> where T: Clone + Default + 'static
 {
-    pub fn new_rc() -> Rc<RefCell<dyn GraphNode>> {
+    pub fn new_rc() -> Rc<dyn GraphNode> {
         Rc::new_cyclic(|me| {
-            RefCell::new(Self {
-                output_pin: GraphNodeOutputPin::new_rc(me.clone() as Weak<RefCell<dyn GraphNode>>)
-            })
+            Self {
+                output_pin: GraphNodeOutputPin::new_rc(me.clone() as Weak<dyn GraphNode>)
+            }
         })
     }
 
-    pub fn load_value(&mut self, data: T) {
+    pub fn load_value(&self, data: T) {
         self.output_pin.borrow_mut().pin.set_data(data);
     }
 }
 
 impl<T> GraphNode<> for SourceGraphNode<T> where T: Clone + Default + 'static
 {
-    fn process_backwards(&mut self) {
+    fn process_backwards(&self) {
     }
 
-    fn process_forwards(&mut self) {
-        let mut output_pin = self.output_pin.borrow_mut();
-        output_pin.send_data();
-        output_pin.propagate_forwards();
+    fn process_forwards(&self) {
+        let borrowed = self.output_pin.borrow();
+        borrowed.send_data();
+        borrowed.propagate_forwards();
     }
 
     fn get_inputs(&self) -> Option<Vec<Rc<RefCell<dyn GraphNodePinBase>>>> {
@@ -266,11 +265,11 @@ pub struct TargetGraphNode<T> where T: Clone + Default + 'static
 
 impl<T> TargetGraphNode<T> where T: Clone + Default
 {
-    pub fn new_rc() -> Rc<RefCell<dyn GraphNode>> {
+    pub fn new_rc() -> Rc<dyn GraphNode> {
         Rc::new_cyclic(|me| {
-            RefCell::new(Self {
-                input_pin: GraphNodeInputPin::new_rc(me.clone() as Weak<RefCell<dyn GraphNode>>)
-            })
+            Self {
+                input_pin: GraphNodeInputPin::new_rc(me.clone() as Weak<dyn GraphNode>)
+            }
         })
     }
 
@@ -281,13 +280,12 @@ impl<T> TargetGraphNode<T> where T: Clone + Default
 
 impl<T> GraphNode<> for TargetGraphNode<T> where T: Clone + Default + 'static
 {
-    fn process_backwards(&mut self) {
-        let mut input_pin =self.input_pin.borrow_mut();
-        input_pin.propagate_backwards();
-        input_pin.receive_data();
+    fn process_backwards(&self) {
+        self.input_pin.borrow().propagate_backwards();
+        self.input_pin.borrow_mut().receive_data();
     }
 
-    fn process_forwards(&mut self) {
+    fn process_forwards(&self) {
     }
 
     fn get_inputs(&self) -> Option<Vec<Rc<RefCell<dyn GraphNodePinBase>>>> {
@@ -316,14 +314,26 @@ where
     Y: Clone + Default + 'static,
     F: Fn(X) -> Y
 {
-    pub fn new_rc(func: F) -> Rc<RefCell<dyn GraphNode>> {
+    pub fn new_rc(func: F) -> Rc<dyn GraphNode> {
         Rc::new_cyclic(|me| {
-            RefCell::new(Self {
-                input_pin: GraphNodeInputPin::new_rc(me.clone() as Weak<RefCell<dyn GraphNode>>),
-                output_pin: GraphNodeOutputPin::new_rc(me.clone() as Weak<RefCell<dyn GraphNode>>),
+            Self {
+                input_pin: GraphNodeInputPin::new_rc(me.clone() as Weak<dyn GraphNode>),
+                output_pin: GraphNodeOutputPin::new_rc(me.clone() as Weak<dyn GraphNode>),
                 func
-            })
+            }
         })
+    }
+    
+    fn send_data(&self, data: Y) {
+        let mut pin_write = self.output_pin.borrow_mut();
+        pin_write.pin.set_data(data);
+        pin_write.send_data();
+    }
+
+    fn receive_data(&self) -> X {
+        let mut pin_write = self.input_pin.borrow_mut();
+        pin_write.receive_data();
+        pin_write.pin.get_data().clone()
     }
 }
 
@@ -333,21 +343,18 @@ where
     Y: Clone + Default + 'static,
     F: Fn(X) -> Y
 {
-    fn process_backwards(&mut self) {
-        let mut input_pin = self.input_pin.borrow_mut();
-        input_pin.propagate_backwards();
-        input_pin.receive_data();
-        let data = input_pin.pin.get_data().clone();
-        let result = (self.func)(data);
+    fn process_backwards(&self) {
+        self.input_pin.borrow().propagate_backwards();
+        let result = (self.func)(self.receive_data());
         self.output_pin.borrow_mut().pin.set_data(result);
     }
 
-    fn process_forwards(&mut self) {
-        let mut output_pin = self.output_pin.borrow_mut();
-        output_pin.pin.set_data((self.func)(self.input_pin.borrow().pin.get_data().clone()));
-        output_pin.send_data();
-        output_pin.propagate_forwards();
+    fn process_forwards(&self) {
+        let x = self.input_pin.borrow().pin.get_data().clone();
+        self.send_data((self.func)(x));
+        self.output_pin.borrow().propagate_forwards();
     }
+
     
     fn get_inputs(&self) -> Option<Vec<Rc<RefCell<dyn GraphNodePinBase>>>> {
         Some(vec![self.input_pin.clone()])
@@ -359,34 +366,34 @@ where
 }
 
 pub struct NodeGraph {
-    nodes: Vec<Rc<RefCell<dyn GraphNode>>>
+    nodes: Vec<Rc<dyn GraphNode>>
 }
 
 impl NodeGraph {
-    pub fn new(nodes: Vec<Rc<RefCell<dyn GraphNode>>>) -> Self {
+    pub fn new(nodes: Vec<Rc<dyn GraphNode>>) -> Self {
         Self {
             nodes
         }
     }
 
-    pub fn get_matching_nodes<F>(&self, f: F) -> Vec<Rc<RefCell<dyn GraphNode>>> 
-        where F: Fn(&&Rc<RefCell<dyn GraphNode>>) -> bool + 'static {
+    pub fn get_matching_nodes<F>(&self, f: F) -> Vec<Rc<dyn GraphNode>> 
+        where F: Fn(&&Rc<dyn GraphNode>) -> bool + 'static {
            self.nodes.iter().filter(f).cloned().collect()
     }
 
-    pub fn get_source_nodes(&self) -> Vec<Rc<RefCell<dyn GraphNode>>> {
+    pub fn get_source_nodes(&self) -> Vec<Rc<dyn GraphNode>> {
         self.get_matching_nodes(|node|
-            node.borrow().get_inputs().is_none() && node.borrow().get_outputs().is_some())
+            node.get_inputs().is_none() && node.get_outputs().is_some())
     }
     
-    pub fn get_target_nodes(&self) -> Vec<Rc<RefCell<dyn GraphNode>>> {
+    pub fn get_target_nodes(&self) -> Vec<Rc<dyn GraphNode>> {
         self.get_matching_nodes(|node|
-            node.borrow().get_inputs().is_some() && node.borrow().get_outputs().is_none())
+            node.get_inputs().is_some() && node.get_outputs().is_none())
     }
     
-    pub fn get_transform_nodes(&self) -> Vec<Rc<RefCell<dyn GraphNode>>> {
+    pub fn get_transform_nodes(&self) -> Vec<Rc<dyn GraphNode>> {
         self.get_matching_nodes(|node|
-            node.borrow().get_inputs().is_some() && node.borrow().get_outputs().is_some())
+            node.get_inputs().is_some() && node.get_outputs().is_some())
     }
     
 }
@@ -430,11 +437,11 @@ fn build_some_graph() -> NodeGraph {
 }
 
 #[cfg(test)]
-fn connect_output_and_input_nodes(output_node: &Rc<RefCell<dyn GraphNode>>, input_node: &Rc<RefCell<dyn GraphNode>>)
+fn connect_output_and_input_nodes(output_node: &Rc<dyn GraphNode>, input_node: &Rc<dyn GraphNode>)
  -> Result<(), Box<dyn Error + 'static>>
 {
-    let output_pins= output_node.borrow().get_outputs().ok_or("Cannot get output output")?;
-    let input_pins= input_node.borrow().get_inputs().ok_or("Cannot get input input")?;
+    let output_pins= output_node.get_outputs().ok_or("Cannot get output output")?;
+    let input_pins= input_node.get_inputs().ok_or("Cannot get input input")?;
 
     assert_eq!(output_pins.len(), 1);
     assert_eq!(input_pins.len(), 1);
@@ -445,11 +452,11 @@ fn connect_output_and_input_nodes(output_node: &Rc<RefCell<dyn GraphNode>>, inpu
 }
 
 #[cfg(test)]
-fn find_matching_transform_node_by_output_data_type<T>(graph: &NodeGraph) -> Option<Rc<RefCell<dyn GraphNode>>>
+fn find_matching_transform_node_by_output_data_type<T>(graph: &NodeGraph) -> Option<Rc<dyn GraphNode>>
 where T: Clone + Default + 'static {
 
     graph.get_transform_nodes().iter().find(|node| 
-            node.borrow().get_outputs().and_then(|pins| 
+            node.get_outputs().and_then(|pins| 
                 pins.iter().find(|pin| 
                     (*pin).clone().borrow().downcast_ref::<GraphNodeOutputPin<T>>().is_some()
                 ).map(|_| true)
@@ -458,17 +465,17 @@ where T: Clone + Default + 'static {
 }
 
 #[cfg(test)]
-fn find_matching_target_node_by_input_data_type<T>(graph: &NodeGraph) -> Option<Rc<RefCell<dyn GraphNode>>>
+fn find_matching_target_node_by_input_data_type<T>(graph: &NodeGraph) -> Option<Rc<dyn GraphNode>>
 where T: Clone + Default + 'static {
 
     graph.get_target_nodes().iter().find(|node| 
-        (*node).clone().borrow().downcast_ref::<TargetGraphNode<T>>().is_some()
+        (*node).clone().downcast_ref::<TargetGraphNode<T>>().is_some()
     ).cloned()
 }
 
 #[cfg(test)]
 fn connect_some_nodes(graph: &NodeGraph)
- -> Result<(Rc<RefCell<dyn GraphNode>>, Rc<RefCell<dyn GraphNode>>, Rc<RefCell<dyn GraphNode>>),
+ -> Result<(Rc<dyn GraphNode>, Rc<dyn GraphNode>, Rc<dyn GraphNode>),
  Box<dyn Error + 'static>> {
 
     let source_node = graph.get_source_nodes().first().ok_or("Cannot find source node")?.clone();
@@ -495,24 +502,23 @@ fn connect_some_nodes(graph: &NodeGraph)
 }
 
 #[cfg(test)]
-fn load_example_value(source_node: Rc<RefCell<dyn GraphNode>>, value: ExampleInput)
+fn load_example_value(source_node: Rc<dyn GraphNode>, value: ExampleInput)
 {
-    if let Some(node) = source_node.borrow_mut().downcast_mut::<SourceGraphNode<ExampleInput>>() {
+    if let Some(node) = source_node.downcast_ref::<SourceGraphNode<ExampleInput>>() {
         node.load_value(value);
     }
 }
 
 #[cfg(test)]
-fn get_example_result<T>(target_node: Rc<RefCell<dyn GraphNode>>) -> Option<T>
+fn get_example_result<T>(target_node: Rc<dyn GraphNode>) -> Option<T>
 where
     T: Default + Clone + 'static
 {
-    match target_node.borrow_mut().downcast_mut::<TargetGraphNode<T>>() {
+    match target_node.downcast_ref::<TargetGraphNode<T>>() {
         Some(node) => Some(node.get_value()),
         _ => None
     }
 }
-
 
 #[test]
 fn test_me() {
@@ -525,7 +531,7 @@ fn test_me() {
     let (source_node, target_node_u, target_node_v) = connect_result.unwrap();
 
     load_example_value(source_node.clone(), ExampleInput{x: 10, y:20});
-    source_node.borrow_mut().process_forwards();
+    source_node.process_forwards();
     let value1u: ExampleResultU = get_example_result(target_node_u.clone()).unwrap();
     let value1v: ExampleResultV = get_example_result(target_node_v.clone()).unwrap();
 
@@ -539,8 +545,8 @@ fn test_me() {
     let (source_node, target_node_u, target_node_v) = connect_result.unwrap();
 
     load_example_value(source_node.clone(), ExampleInput{x:20, y:80});
-    target_node_u.borrow_mut().process_backwards();
-    target_node_v.borrow_mut().process_backwards();
+    target_node_u.process_backwards();
+    target_node_v.process_backwards();
     let value2u: ExampleResultU = get_example_result(target_node_u.clone()).unwrap();
     let value2v: ExampleResultV = get_example_result(target_node_v.clone()).unwrap();
 
