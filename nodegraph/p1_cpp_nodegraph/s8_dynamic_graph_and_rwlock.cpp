@@ -343,8 +343,9 @@ public:
     {
         DBG("Source.ProcessForwards");
 
-        m_outputPin.read()->SendData();
-        m_outputPin.read()->PropagateForwards();
+        auto guard = m_outputPin.read();
+        guard->SendData();
+        guard->PropagateForwards();
     }
     
     void ProcessBackwards() const override
@@ -415,9 +416,9 @@ public:
     {
         DBG("Transform.ProcessBackwards");
         // If we're propagating backwards, then request came from output pin
+        m_inputPin.read()->PropagateBackwards();
         // This can happen when we're pulling from output
-        auto data = ReceiveData();
-        auto result = m_function(std::move(data));
+        auto result = m_function(ReceiveData());
         m_outputPin.write()->SetData(std::move(result));
     }
 
@@ -427,8 +428,7 @@ public:
         // If we're propagate forwards, then request came from input pin
         // This can happen when we're pushing new input data
         auto data = m_inputPin.read()->GetData();
-        auto result = m_function(std::move(data));
-        SendData(result);
+        SendData(m_function(std::move(data)));
         m_outputPin.read()->PropagateForwards();
     }
     
@@ -464,11 +464,11 @@ public:
     ~NodeGraph() { DBG("~NodeGraph()"); }
 
     template<class NodeT>
-    NodeGraph &AddNode(Arc<NodeT> const &nodePtr)
-    {
-        m_nodes.emplace(std::move(nodePtr));
-        return *this;
-    }
+        NodeGraph &AddNode(Arc<NodeT> &&nodePtr)
+        {
+            m_nodes.emplace(std::move(nodePtr));
+            return *this;
+        }
 
     std::set<IGraphNodePtr> GetSourceNodes() const
     {
@@ -491,9 +491,9 @@ public:
     template<class NodeType>
         std::set<Arc<NodeType>> GetNodesOfType() const
         {
-            auto projection = [] (auto &nodePtr) { return std::dynamic_pointer_cast<NodeType>(nodePtr); };
             std::set<Arc<NodeType>> nodes{};
-            std::ranges::transform(m_nodes, std::inserter(nodes, nodes.begin()), projection);
+            std::ranges::transform(m_nodes, std::inserter(nodes, nodes.begin()),[] (auto &nodePtr) {
+                return std::dynamic_pointer_cast<NodeType>(nodePtr); });
             nodes.erase(Arc<NodeType>{});
             return std::move(nodes);
         }
