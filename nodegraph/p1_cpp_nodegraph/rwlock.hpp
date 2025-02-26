@@ -45,8 +45,12 @@ template<class T> using RwLockWrite = RwLockGuard<std::unique_lock<std::shared_m
 template<class I> class IRwLock
 {
 public:
-    virtual ~IRwLock() {}
-   
+    IRwLock(IRwLock const &) = delete;
+    IRwLock(IRwLock &&) = delete;
+
+    IRwLock &operator=(IRwLock const &) = delete;
+    IRwLock &operator=(IRwLock &&) = delete;
+
     /// @brief Test for concrete data type and unlock for writing
     /// @tparam T Type of data to be unlocked
     /// @return Optional unlocked data
@@ -79,7 +83,6 @@ public:
     RwLockRead<I const> read() const
     {
         return {std::shared_lock(m_mutex), get_ptr()};
-    
     }
     
     /// @brief Unlock abstract data for writing
@@ -92,6 +95,9 @@ protected:
     mutable std::shared_mutex m_mutex{};
 
     virtual I *get_ptr() const = 0;
+    
+    IRwLock() {}
+    ~IRwLock() {}
 };
 
 /// @brief Locked data supporting unlocking for reading and writing
