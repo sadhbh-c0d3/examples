@@ -12,9 +12,6 @@ template<class L, class T> class RwLockGuard
 public:
     RwLockGuard(L &&m, T *d): m_lock{std::move(m)}, m_data{d} {}
 
-    RwLockGuard(RwLockGuard const &) = delete;
-    RwLockGuard &operator=(RwLockGuard const &) = delete;
-
     RwLockGuard(RwLockGuard &&other): m_lock{std::move(other.m_lock)}, m_data{std::move(other.m_data)} {}
     RwLockGuard &operator=(RwLockGuard &&other)
     {
@@ -26,10 +23,12 @@ public:
     T *operator->() { return m_data; }
     T& operator*() { return *m_data; }
 
-
 private:
     L m_lock;
     T *m_data;
+    
+    RwLockGuard(RwLockGuard const &) = delete;
+    RwLockGuard &operator=(RwLockGuard const &) = delete;
 };
 
 /// @brief Lock guard of data unlocked for reading
@@ -45,12 +44,6 @@ template<class T> using RwLockWrite = RwLockGuard<std::unique_lock<std::shared_m
 template<class I> class IRwLock
 {
 public:
-    IRwLock(IRwLock const &) = delete;
-    IRwLock(IRwLock &&) = delete;
-
-    IRwLock &operator=(IRwLock const &) = delete;
-    IRwLock &operator=(IRwLock &&) = delete;
-
     /// @brief Test for concrete data type and unlock for writing
     /// @tparam T Type of data to be unlocked
     /// @return Optional unlocked data
@@ -93,11 +86,18 @@ public:
 
 protected:
     mutable std::shared_mutex m_mutex{};
-
-    virtual I *get_ptr() const = 0;
+    I &m_data_ref;
     
-    IRwLock() {}
+    I *get_ptr() const { return &m_data_ref; }
+    
+    IRwLock(I &data_ref) : m_data_ref{data_ref} {}
     ~IRwLock() {}
+
+    IRwLock(IRwLock const &) = delete;
+    IRwLock(IRwLock &&) = delete;
+
+    IRwLock &operator=(IRwLock const &) = delete;
+    IRwLock &operator=(IRwLock &&) = delete;
 };
 
 /// @brief Locked data supporting unlocking for reading and writing
@@ -109,7 +109,7 @@ public:
     // we can use IRwLock<I> and then be able to downcast to RwLock<T> when needed.
     using I = typename T::base_interface;
 
-    template<class ...Args> RwLock(Args &&...args): m_data{std::forward<Args>(args)...} {}
+    template<class ...Args> RwLock(Args &&...args): IRwLock<I>{m_data}, m_data{std::forward<Args>(args)...} {}
 
     RwLock(RwLock const &) = delete;
     RwLock &operator=(RwLock const &) = delete;
@@ -133,7 +133,7 @@ private:
     mutable T m_data;
 
 protected:
-    T *get_ptr() const override { return &m_data; }
+    T *get_ptr() const { return &m_data; }
 };
 
 #endif//__INCLUDED_NODEGRAPH__RW_LOCK__HPP__

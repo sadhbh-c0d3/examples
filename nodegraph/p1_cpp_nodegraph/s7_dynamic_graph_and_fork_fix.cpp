@@ -3,41 +3,11 @@
 #include<iostream>
 #include<assert.h>
 
+#include "weak_ptr_compare.hpp"
+#include "helpers.hpp"
+
 // local namespace
 namespace {
-
-/// @brief Compare two weak pointers by their pointer value
-/// @remark Inspired by: https://stackoverflow.com/questions/32668742/a-set-of-weak-ptr
-template<class T> struct weak_ptr_compare {
-    bool operator() (const std::weak_ptr<T> &lhs, const std::weak_ptr<T> &rhs)const {
-        auto lptr = lhs.lock(), rptr = rhs.lock();
-        if (!rptr) return false; // nothing after expired pointer 
-        if (!lptr) return true;  // every not expired after expired pointer
-        return lptr.get() < rptr.get();
-    }
-};
-
-/// @brief An interface capable of loading a value into somewhere
-/// @tparam T 
-template<class T> struct IValueLoader
-{
-    virtual void LoadValue(T &&value) = 0;
-
-protected:
-    // Only derived class can call this destructor
-    ~IValueLoader() {}
-};
-
-/// @brief An interface capable of obtaining a value from somewhere
-/// @tparam T 
-template<class T> struct IValueHolder
-{
-    virtual T const &GetValue() const = 0;
-
-protected:
-    // Only derived class can call this destructor
-    ~IValueHolder() {}
-};
 
 struct INode;
 

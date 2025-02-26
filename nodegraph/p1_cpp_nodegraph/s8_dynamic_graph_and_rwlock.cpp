@@ -7,6 +7,7 @@
 
 #include "rwlock.hpp"
 #include "weak_ptr_compare.hpp"
+#include "helpers.hpp"
 
 #define DBG(expr)
 // #define DBG(expr) std::cout << "DBG> " << expr << std::endl
@@ -14,40 +15,12 @@
 // local namespace
 namespace {
 
-/// @brief An interface capable of loading a value into somewhere
-/// @tparam T 
-template<class T> struct IValueLoader
-{
-    virtual void LoadValue(T &&value) = 0;
-
-protected:
-    // Only derived class can call this destructor
-    ~IValueLoader() {}
-};
-
-/// @brief An interface capable of obtaining a value from somewhere
-/// @tparam T 
-template<class T> struct IValueHolder
-{
-    virtual T const &GetValue() const = 0;
-
-protected:
-    // Only derived class can call this destructor
-    ~IValueHolder() {}
-};
-
 struct INode;
 
 using Action = std::function<void ()>;
 
 struct IPin
 {
-    IPin(IPin const &) = delete;
-    IPin(IPin &&) = delete;
-
-    IPin &operator=(IPin const &) = delete;
-    IPin &operator=(IPin &&) = delete;
-
     virtual INode &GetOwningNode() const = 0;
 
     virtual bool IsConnected() const = 0;
@@ -57,6 +30,12 @@ struct IPin
 protected:
     IPin() {}
     ~IPin() {}
+
+    IPin(IPin const &) = delete;
+    IPin(IPin &&) = delete;
+
+    IPin &operator=(IPin const &) = delete;
+    IPin &operator=(IPin &&) = delete;
 };
 
 using IPinPtr = std::shared_ptr<IRwLock<IPin>>;
@@ -64,13 +43,6 @@ using IPinPtr = std::shared_ptr<IRwLock<IPin>>;
 /// @brief General node interface
 struct INode : std::enable_shared_from_this<INode>
 {
-    INode() {}
-    INode(INode const &) = delete;
-    INode(INode &&) = delete;
-
-    INode &operator= (INode const &) = delete;
-    INode &operator= (INode &&) = delete;
-
     virtual void ProcessForwards() const = 0;
     virtual void ProcessBackwards() const = 0;
 
@@ -81,8 +53,14 @@ struct INode : std::enable_shared_from_this<INode>
     virtual std::set<IPinPtr> GetOutputPins() const = 0;
 
 protected:
-    // Only derived class can call this destructor
+    INode() {}
     ~INode() {}
+
+    INode(INode const &) = delete;
+    INode(INode &&) = delete;
+
+    INode &operator= (INode const &) = delete;
+    INode &operator= (INode &&) = delete;
 };
 
 using INodePtr = std::shared_ptr<INode>;
@@ -616,13 +594,11 @@ void add_example_nodes_to_graph(NodeGraph &graph)
 
     // Let's create node using our transformation function
     auto transformUNodePtr = std::make_shared<TransformNode<
-        ExampleDataSamplePtr,
-        ExampleDataResultUPtr,
+        ExampleDataSamplePtr, ExampleDataResultUPtr,
         decltype(funcU)>>(funcU);
 
     auto transformVNodePtr = std::make_shared<TransformNode<
-        ExampleDataSamplePtr,
-        ExampleDataResultVPtr,
+        ExampleDataSamplePtr, ExampleDataResultVPtr,
         decltype(funcV)>>(funcV);
 
     // Now we need some source

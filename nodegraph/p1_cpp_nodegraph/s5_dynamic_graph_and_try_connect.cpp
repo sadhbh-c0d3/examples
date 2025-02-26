@@ -3,30 +3,10 @@
 #include<iostream>
 #include<assert.h>
 
+#include "helpers.hpp"
+
 // local namespace
 namespace {
-
-/// @brief An interface capable of loading a value into somewhere
-/// @tparam T 
-template<class T> struct IValueLoader
-{
-    virtual void LoadValue(T &&value) = 0;
-
-protected:
-    // Only derived class can call this destructor
-    ~IValueLoader() {}
-};
-
-/// @brief An interface capable of obtaining a value from somewhere
-/// @tparam T 
-template<class T> struct IValueHolder
-{
-    virtual T const &GetValue() const = 0;
-
-protected:
-    // Only derived class can call this destructor
-    ~IValueHolder() {}
-};
 
 struct IPin
 {
