@@ -20,10 +20,10 @@ void rwlock_test()
     derived.write()->baz();
     derived.read()->bar();
 
-    derived.read_base()->bar();
-    derived.write_base()->foo();
-
     IRwLock<Base> &base{derived};
+    
+    base.read()->bar();
+    base.write()->foo();
 
     {
         auto maybe_derived = base.try_write<Derived>();

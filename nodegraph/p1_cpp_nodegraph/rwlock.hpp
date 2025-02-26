@@ -1,3 +1,6 @@
+#ifndef __INCLUDED_NODEGRAPH__RW_LOCK__HPP__
+#define __INCLUDED_NODEGRAPH__RW_LOCK__HPP__
+
 #include<optional>
 #include<shared_mutex>
 
@@ -73,14 +76,14 @@ public:
     }
     
     /// @brief Unlock abstract data for reading
-    RwLockRead<I const> read_base() const
+    RwLockRead<I const> read() const
     {
         return {std::shared_lock(m_mutex), get_ptr()};
     
     }
     
     /// @brief Unlock abstract data for writing
-    RwLockWrite<I> write_base() const
+    RwLockWrite<I> write() const
     {
         return {std::unique_lock(m_mutex), get_ptr()};
     }
@@ -126,3 +129,5 @@ private:
 protected:
     T *get_ptr() const override { return &m_data; }
 };
+
+#endif//__INCLUDED_NODEGRAPH__RW_LOCK__HPP__

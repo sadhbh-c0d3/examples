@@ -1,26 +1,18 @@
 #include<memory>
 #include<set>
 #include<iostream>
+#include<algorithm>
+#include<ranges>
 #include<assert.h>
 
 #include "rwlock.hpp"
+#include "weak_ptr_compare.hpp"
 
 #define DBG(expr)
 // #define DBG(expr) std::cout << "DBG> " << expr << std::endl
 
 // local namespace
 namespace {
-
-/// @brief Compare two weak pointers by their pointer value
-/// @remark Inspired by: https://stackoverflow.com/questions/32668742/a-set-of-weak-ptr
-template<class T> struct weak_ptr_compare {
-    bool operator() (const std::weak_ptr<T> &lhs, const std::weak_ptr<T> &rhs)const {
-        auto lptr = lhs.lock(), rptr = rhs.lock();
-        if (!rptr) return false; // nothing after expired pointer 
-        if (!lptr) return true;  // every not expired after expired pointer
-        return lptr.get() < rptr.get();
-    }
-};
 
 /// @brief An interface capable of loading a value into somewhere
 /// @tparam T 
@@ -46,17 +38,28 @@ protected:
 
 struct INode;
 
+using Action = std::function<void ()>;
+
 struct IPin
 {
+    IPin(IPin const &) = delete;
+    IPin(IPin &&) = delete;
+
+    IPin &operator=(IPin const &) = delete;
+    IPin &operator=(IPin &&) = delete;
+
     virtual INode &GetOwningNode() const = 0;
+
     virtual bool IsConnected() const = 0;
     virtual bool TryConnect(IRwLock<IPin> &otherPin) = 0;
-    virtual void Disconnect() = 0;
+    [[nodiscard]] virtual Action Disconnect() = 0;
 
 protected:
-    // Only derived class can call this destructor
+    IPin() {}
     ~IPin() {}
 };
+
+using IPinPtr = std::shared_ptr<IRwLock<IPin>>;
 
 /// @brief General node interface
 struct INode : std::enable_shared_from_this<INode>
@@ -74,13 +77,15 @@ struct INode : std::enable_shared_from_this<INode>
     virtual bool HasInputs() const = 0;
     virtual bool HasOutputs() const = 0;
 
-    virtual std::set<std::shared_ptr<IRwLock<IPin>>> GetInputPins() const = 0;
-    virtual std::set<std::shared_ptr<IRwLock<IPin>>> GetOutputPins() const = 0;
+    virtual std::set<IPinPtr> GetInputPins() const = 0;
+    virtual std::set<IPinPtr> GetOutputPins() const = 0;
 
 protected:
     // Only derived class can call this destructor
     ~INode() {}
 };
+
+using INodePtr = std::shared_ptr<INode>;
 
 /// @brief Universal pin
 /// @tparam T Type of data stored in this pin
@@ -108,8 +113,11 @@ protected:
     Pin(INode &node): m_node(node), m_data{} {}
 };
 
-// Forward declaration of OutputPin
+template<class T> class InputPin;
 template<class T> class OutputPin;
+
+template<class T> using InputPinPtr = std::shared_ptr<RwLock<InputPin<T>>>;
+template<class T> using OutputPinPtr = std::shared_ptr<RwLock<OutputPin<T>>>;
 
 /// @brief Input pin
 /// @tparam T Type of data input
@@ -143,7 +151,7 @@ public:
     }
     
     /// @brief Obtain connected pin
-    std::shared_ptr<RwLock<OutputPin<T>>> GetConnectedPin() const { return m_connection.lock(); }
+    OutputPinPtr<T> GetConnectedPin() const { return m_connection.lock(); }
 
     /// @brief Tell if pin is connected
     /// @return 
@@ -153,13 +161,13 @@ public:
     }
 
     /// @brief Disconnect other pin
-    void Disconnect() override;
+    Action Disconnect() override;
     
-    void OutputDisconnecting();
+    Action OutputDisconnecting();
 
-    std::shared_ptr<RwLock<InputPin<T>>> shared_from_this() const
+    InputPinPtr<T> shared_from_this() const
     {
-        return std::shared_ptr<RwLock<InputPin<T>>>(Pin<T>::GetOwningNode().shared_from_this(), &m_me);
+        return InputPinPtr<T>(Pin<T>::GetOwningNode().shared_from_this(), &m_me);
     }
 
 private:
@@ -219,9 +227,9 @@ public:
     }
     
     /// @brief Obtain connected pin
-    std::set<std::shared_ptr<RwLock<InputPin<T>>>> GetConnectedPins() const
+    std::set<InputPinPtr<T>> GetConnectedPins() const
     {
-        std::set<std::shared_ptr<RwLock<InputPin<T>>>> pins;
+        std::set<InputPinPtr<T>> pins;
         
         for (auto &pin : m_connections)
         {
@@ -252,17 +260,24 @@ public:
     }
 
     /// @brief Disconnect other pin
-    void Disconnect() override
+    Action Disconnect() override
     {
         auto connections = GetConnectedPins();
         m_connections.clear();
 
-        for (auto &pin : connections) { pin->write()->OutputDisconnecting(); }
+        std::vector<Action> actions;
+        std::ranges::transform(connections, std::back_inserter(actions), [](auto &pin) {
+            return pin->write()->OutputDisconnecting();
+        });
+
+        return [actions]() {
+            std::ranges::for_each(actions, [](auto &action) { action(); });
+        };
     }
     
-    std::shared_ptr<RwLock<OutputPin<T>>> shared_from_this() const
+    OutputPinPtr<T> shared_from_this() const
     {
-        return std::shared_ptr<RwLock<OutputPin<T>>>(Pin<T>::GetOwningNode().shared_from_this(), &m_me);
+        return OutputPinPtr<T>(Pin<T>::GetOwningNode().shared_from_this(), &m_me);
     }
 
 private:
@@ -271,7 +286,7 @@ private:
     std::set<std::weak_ptr<RwLock<InputPin<T>>>, weak_ptr_compare<RwLock<InputPin<T>>>> m_connections;
 };
 
-template<class T> void InputPin<T>::Disconnect()
+template<class T> Action InputPin<T>::Disconnect()
 {
     // Since we're disconnecting input, we need to drop old data
     Pin<T>::SetData(T{});
@@ -289,14 +304,24 @@ template<class T> void InputPin<T>::Disconnect()
         // Source died
         m_connection.reset();
     }
+    
+    // The lock acquired to read owning node is now gone, and we can go ahead and tell node to propagate
+    return [node = Pin<T>::GetOwningNode().shared_from_this()]() {
+        node->ProcessForwards();
+    };
 }
 
-template<class T> void InputPin<T>::OutputDisconnecting()
+template<class T> Action InputPin<T>::OutputDisconnecting()
 {
     // Since we're disconnecting input, we need to drop old data
     Pin<T>::SetData(T{});
 
     m_connection.reset();
+
+    // The lock acquired to read owning node is now gone, and we can go ahead and tell node to propagate
+    return [node = Pin<T>::GetOwningNode().shared_from_this()]() {
+        node->ProcessForwards();
+    };
 }
 
 // Implementation of InputPin::Connect
@@ -349,8 +374,8 @@ public:
     bool HasInputs() const override { return false; }
     bool HasOutputs() const override { return true; }
 
-    std::set<std::shared_ptr<IRwLock<IPin>>> GetInputPins() const override { return {}; }
-    std::set<std::shared_ptr<IRwLock<IPin>>> GetOutputPins() const override { return {m_outputPin.read()->shared_from_this() }; }
+    std::set<IPinPtr> GetInputPins() const override { return {}; }
+    std::set<IPinPtr> GetOutputPins() const override { return {m_outputPin.read()->shared_from_this() }; }
 
     void LoadValue(T &&value) override
     {
@@ -387,8 +412,8 @@ public:
     bool HasInputs() const override { return true; }
     bool HasOutputs() const override { return false; }
 
-    std::set<std::shared_ptr<IRwLock<IPin>>> GetInputPins() const override { return { m_inputPin.read()->shared_from_this() }; }
-    std::set<std::shared_ptr<IRwLock<IPin>>> GetOutputPins() const override { return {}; }
+    std::set<IPinPtr> GetInputPins() const override { return { m_inputPin.read()->shared_from_this() }; }
+    std::set<IPinPtr> GetOutputPins() const override { return {}; }
 
     T const &GetValue() const override
     {
@@ -429,8 +454,8 @@ public:
     bool HasInputs() const override { return true; }
     bool HasOutputs() const override { return true; }
 
-    std::set<std::shared_ptr<IRwLock<IPin>>> GetInputPins() const override { return {m_inputPin.read()->shared_from_this()}; }
-    std::set<std::shared_ptr<IRwLock<IPin>>> GetOutputPins() const override { return {m_outputPin.read()->shared_from_this()}; }
+    std::set<IPinPtr> GetInputPins() const override { return {m_inputPin.read()->shared_from_this()}; }
+    std::set<IPinPtr> GetOutputPins() const override { return {m_outputPin.read()->shared_from_this()}; }
 
 private:
     F m_function;
@@ -464,73 +489,44 @@ public:
         return *this;
     }
 
-    std::set<std::shared_ptr<INode>> GetSourceNodes()
+    std::set<INodePtr> GetSourceNodes()
     {
-        std::set<std::shared_ptr<INode>> sourceNodes{};
-
-        // One could use combination of std::transform() and std::copy_if(), or std::ranges
-        for (auto &nodePtr : m_nodes)
-        {
-            if (not nodePtr->HasInputs()) { assert(nodePtr->HasOutputs()); sourceNodes.insert(nodePtr); }
-        }
-    
-        return std::move(sourceNodes);
+        auto predicate = [](auto &nodePtr) { return nodePtr->HasOutputs() and not nodePtr->HasInputs(); };
+        return GetMatchingNodes(std::move(predicate));
     }
 
-    std::set<std::shared_ptr<INode>> GetTargetNodes()
+    std::set<INodePtr> GetTargetNodes()
     {
-        std::set<std::shared_ptr<INode>> targetNodes{};
-
-        for (auto &nodePtr : m_nodes)
-        {
-            if (not nodePtr->HasOutputs()) { assert(nodePtr->HasInputs()); targetNodes.insert(nodePtr); }
-        }
-
-        return std::move(targetNodes);
+        auto predicate = [](auto &nodePtr) { return nodePtr->HasInputs() and not nodePtr->HasOutputs(); };
+        return GetMatchingNodes(std::move(predicate));
     }
 
-    std::set<std::shared_ptr<INode>> GetTransformNodes()
+    std::set<INodePtr> GetTransformNodes()
     {
-        std::set<std::shared_ptr<INode>> transformNodes{};
-
-        // One could use combination of std::transform() and std::copy_if(), or std::ranges
-        for (auto &nodePtr : m_nodes)
-        {
-            if (nodePtr->HasInputs() and nodePtr->HasOutputs()) { transformNodes.insert(nodePtr); }
-        }
-    
-        return std::move(transformNodes);
+        auto predicate = [](auto &nodePtr) { return nodePtr->HasInputs() and nodePtr->HasOutputs(); };
+        return GetMatchingNodes(std::move(predicate));
     }
 
     template<class NodeType>
         std::set<std::shared_ptr<NodeType>> GetNodesOfType()
         {
+            auto projection = [] (auto &nodePtr) { return std::dynamic_pointer_cast<NodeType>(nodePtr); };
             std::set<std::shared_ptr<NodeType>> nodes{};
-
-            for (auto &nodePtr : m_nodes)
-            {
-                if (auto ptr = std::dynamic_pointer_cast<NodeType>(nodePtr); ptr) { nodes.insert(ptr); }
-            }
-
+            std::ranges::transform(m_nodes, std::inserter(nodes, nodes.begin()), projection);
+            nodes.erase(std::shared_ptr<NodeType>{});
             return std::move(nodes);
         }
 
     template<class Predicate>
-        std::set<std::shared_ptr<INode>> GetMatchingNodes(Predicate &&predicate)
+        std::set<INodePtr> GetMatchingNodes(Predicate &&predicate)
         {
-            std::set<std::shared_ptr<INode>> nodes{};
-
-            // One could use combination of std::transform() and std::copy_if(), or std::ranges
-            for (auto &nodePtr : m_nodes)
-            {
-                if (predicate(nodePtr)) { nodes.insert(nodePtr); }
-            }
-        
+            std::set<INodePtr> nodes{};
+            std::ranges::copy_if(m_nodes, std::inserter(nodes, nodes.begin()), predicate);
             return std::move(nodes);
         }
 
 private:
-    std::set<std::shared_ptr<INode>> m_nodes;
+    std::set<INodePtr> m_nodes;
 };
 
 struct ExampleDataSample
@@ -558,7 +554,11 @@ struct ExampleDataResultV
     double v;
 };
 
-std::ostream &operator <<(std::ostream &os, std::shared_ptr<ExampleDataSample> const &data)
+using ExampleDataSamplePtr = std::shared_ptr<ExampleDataSample>;
+using ExampleDataResultUPtr = std::shared_ptr<ExampleDataResultU>;
+using ExampleDataResultVPtr = std::shared_ptr<ExampleDataResultV>;
+
+std::ostream &operator <<(std::ostream &os, ExampleDataSamplePtr const &data)
 {
     if (data) {
         return os << "[ x: " << data->x << ", y: " << data->y << "]";
@@ -568,7 +568,7 @@ std::ostream &operator <<(std::ostream &os, std::shared_ptr<ExampleDataSample> c
     }
 }
 
-std::ostream &operator <<(std::ostream &os, std::shared_ptr<ExampleDataResultU> const &data)
+std::ostream &operator <<(std::ostream &os, ExampleDataResultUPtr const &data)
 {
     if (data) {
         return os << "[ u: " << data->u << "]";
@@ -578,7 +578,7 @@ std::ostream &operator <<(std::ostream &os, std::shared_ptr<ExampleDataResultU> 
     }
 }
 
-std::ostream &operator <<(std::ostream &os, std::shared_ptr<ExampleDataResultV> const &data)
+std::ostream &operator <<(std::ostream &os, ExampleDataResultVPtr const &data)
 {
     if (data) {
         return os << "[ v: " << data->v << "]";
@@ -592,49 +592,46 @@ void add_example_nodes_to_graph(NodeGraph &graph)
 {
     // Func lives only within current scope.
     // Note that it gets consumed by TrasformNode constructor.
-    auto funcU = [](std::shared_ptr<ExampleDataSample> const &data)
+    auto funcU = [](ExampleDataSamplePtr const &data)
     {
         if (data) {
             return std::make_shared<ExampleDataResultU>(
                 static_cast<double>(data->x * data->y));
         }
         else {
-            return std::shared_ptr<ExampleDataResultU>{};
+            return ExampleDataResultUPtr{};
         }
     };
 
-    auto funcV = [](std::shared_ptr<ExampleDataSample> const &data)
+    auto funcV = [](ExampleDataSamplePtr const &data)
     {
         if (data) {
             return std::make_shared<ExampleDataResultV>(
                 static_cast<double>(data->x) / static_cast<double>(data->y));
         }
         else {
-            return std::shared_ptr<ExampleDataResultV>{};
+            return ExampleDataResultVPtr{};
         }
     };
 
     // Let's create node using our transformation function
     auto transformUNodePtr = std::make_shared<TransformNode<
-        std::shared_ptr<ExampleDataSample>,
-        std::shared_ptr<ExampleDataResultU>,
+        ExampleDataSamplePtr,
+        ExampleDataResultUPtr,
         decltype(funcU)>>(funcU);
 
     auto transformVNodePtr = std::make_shared<TransformNode<
-        std::shared_ptr<ExampleDataSample>,
-        std::shared_ptr<ExampleDataResultV>,
+        ExampleDataSamplePtr,
+        ExampleDataResultVPtr,
         decltype(funcV)>>(funcV);
 
     // Now we need some source
-    auto sourceNodePtr = std::make_shared<SourceNode<
-        std::shared_ptr<ExampleDataSample>>>();
+    auto sourceNodePtr = std::make_shared<SourceNode<ExampleDataSamplePtr>>();
 
     // And we also need some target
-    auto targetUNodePtr = std::make_shared<TargetNode<
-        std::shared_ptr<ExampleDataResultU>>>();
+    auto targetUNodePtr = std::make_shared<TargetNode<ExampleDataResultUPtr>>();
     
-    auto targetVNodePtr = std::make_shared<TargetNode<
-        std::shared_ptr<ExampleDataResultV>>>();
+    auto targetVNodePtr = std::make_shared<TargetNode<ExampleDataResultVPtr>>();
 
     // Move ownership of the nodes into node graph
     graph
@@ -663,7 +660,7 @@ void test_s8_dynamic_graph_and_lock()
 
     // and we need to be able to load value into source node
     auto sourceNode = *std::begin(sourceNodes);
-    auto sourceLoader = std::dynamic_pointer_cast<IValueLoader<std::shared_ptr<ExampleDataSample>>>(sourceNode);
+    auto sourceLoader = std::dynamic_pointer_cast<IValueLoader<ExampleDataSamplePtr>>(sourceNode);
     assert(nullptr != sourceLoader);
 
     // and then we need to get output pin from the source node
@@ -674,22 +671,22 @@ void test_s8_dynamic_graph_and_lock()
     auto sourcePin = *std::begin(sourceOutputPins);
 
     auto sourcePinGetData = [sourcePin] {
-        auto sourceOutputPin = sourcePin->try_read<OutputPin<std::shared_ptr<ExampleDataSample>>>();
+        auto sourceOutputPin = sourcePin->try_read<OutputPin<ExampleDataSamplePtr>>();
         assert(sourceOutputPin.has_value());
         return sourceOutputPin.value()->GetData();
     };
 
     // We need to find target nodes
-    auto targetUNodes = graph.GetNodesOfType<TargetNode<std::shared_ptr<ExampleDataResultU>>>();
-    auto targetVNodes = graph.GetNodesOfType<TargetNode<std::shared_ptr<ExampleDataResultV>>>();
+    auto targetUNodes = graph.GetNodesOfType<TargetNode<ExampleDataResultUPtr>>();
+    auto targetVNodes = graph.GetNodesOfType<TargetNode<ExampleDataResultVPtr>>();
     assert(targetUNodes.size() == 1);
     assert(targetVNodes.size() == 1);
 
     // and then we need to be able to get current result from them
     auto targetUNode = *std::begin(targetUNodes);
     auto targetVNode = *std::begin(targetVNodes);
-    auto targetUHolder = std::dynamic_pointer_cast<IValueHolder<std::shared_ptr<ExampleDataResultU>>>(targetUNode);
-    auto targetVHolder = std::dynamic_pointer_cast<IValueHolder<std::shared_ptr<ExampleDataResultV>>>(targetVNode);
+    auto targetUHolder = std::dynamic_pointer_cast<IValueHolder<ExampleDataResultUPtr>>(targetUNode);
+    auto targetVHolder = std::dynamic_pointer_cast<IValueHolder<ExampleDataResultVPtr>>(targetVNode);
     assert(targetUHolder);
     assert(targetVHolder);
     
@@ -705,17 +702,17 @@ void test_s8_dynamic_graph_and_lock()
     // We need to find transform node first
     auto transformUNodes = graph.GetMatchingNodes([](auto const &ptr) {
         if (ptr->HasInputs()) {
-            for (std::shared_ptr<IRwLock<IPin>> const &pin : ptr->GetOutputPins()) {
-                if (pin->try_read<OutputPin<std::shared_ptr<ExampleDataResultU>>>().has_value()) { return true; }
-            }
+            auto pins = ptr->GetOutputPins();
+            return pins.end() != std::ranges::find_if(pins, [](std::shared_ptr<IRwLock<IPin>> const &pin) {
+                return pin->try_read<OutputPin<ExampleDataResultUPtr>>().has_value(); });
         }
         return false;
     });
     auto transformVNodes = graph.GetMatchingNodes([](auto const &ptr) {
         if (ptr->HasInputs()) {
-            for (std::shared_ptr<IRwLock<IPin>> const &pin : ptr->GetOutputPins()) {
-                if (pin->try_read<OutputPin<std::shared_ptr<ExampleDataResultV>>>().has_value()) { return true; }
-            }
+            auto pins = ptr->GetOutputPins();
+            return pins.end() != std::ranges::find_if(pins, [](std::shared_ptr<IRwLock<IPin>> const &pin) {
+                return pin->try_read<OutputPin<ExampleDataResultVPtr>>().has_value(); });
         }
         return false;
     });
@@ -741,10 +738,10 @@ void test_s8_dynamic_graph_and_lock()
     auto transformVOutputPin = *std::begin(transformVOutputPins);
     
     // We connect input and output of transform node
-    auto connectUInputResult = transformUInputPin->write_base()->TryConnect(*sourcePin);
-    auto connectVInputResult = transformVInputPin->write_base()->TryConnect(*sourcePin);
-    auto connectUOutputResult = transformUOutputPin->write_base()->TryConnect(*targetUPin);
-    auto connectVOutputResult = transformVOutputPin->write_base()->TryConnect(*targetVPin);
+    auto connectUInputResult = transformUInputPin->write()->TryConnect(*sourcePin);
+    auto connectVInputResult = transformVInputPin->write()->TryConnect(*sourcePin);
+    auto connectUOutputResult = transformUOutputPin->write()->TryConnect(*targetUPin);
+    auto connectVOutputResult = transformVOutputPin->write()->TryConnect(*targetVPin);
 
     assert(connectUInputResult);
     assert(connectVInputResult);
@@ -769,12 +766,8 @@ void test_s8_dynamic_graph_and_lock()
                << targetUHolder->GetValue() << " and " << targetVHolder->GetValue() << std::endl;
     
     // Let's disconnect one of the transform nodes
-    transformVInputPin->write_base()->Disconnect();
-    {
-        auto &node = transformVInputPin->read_base()->GetOwningNode();
-        // The lock acquired to read owning node is now gone, and we can go ahead and tell node to propagate
-        node.ProcessForwards();
-    }
+    auto action1 = transformVInputPin->write()->Disconnect();
+    action1();
 
     std::cout << "After disconnecting V transform" << std::endl;
 
@@ -794,7 +787,8 @@ void test_s8_dynamic_graph_and_lock()
                << targetUHolder->GetValue() << " and " << targetVHolder->GetValue() << std::endl;
     
     // Let's disconnect source
-    sourcePin->write_base()->Disconnect();
+    auto action2 = sourcePin->write()->Disconnect();
+    action2();
     
     std::cout << "After disconnecting source" << std::endl;
 
