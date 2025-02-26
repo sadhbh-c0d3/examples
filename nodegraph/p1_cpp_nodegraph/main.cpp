@@ -7,7 +7,7 @@ void test_s4_dynamic_graph_and_shared_ptr();
 void test_s5_dynamic_graph_and_try_connect();
 void test_s6_dynamic_graph_and_fork();
 void test_s7_dynamic_graph_and_fork_fix();
-
+void test_s8_dynamic_graph_and_lock();
 
 int main(int argc, char **argv)
 {
@@ -32,6 +32,9 @@ int main(int argc, char **argv)
 
     // S7: Forward propagation fix for forked output
     test_s7_dynamic_graph_and_fork_fix();
+
+    // S8: Locking
+    test_s8_dynamic_graph_and_lock();
 
     return 0;
 }
