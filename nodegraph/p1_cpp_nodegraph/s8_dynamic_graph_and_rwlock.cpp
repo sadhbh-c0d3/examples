@@ -96,10 +96,10 @@ template<class T> using OutputPinPtr = std::shared_ptr<RwLock<OutputPin<T>>>;
 
 /// @brief Input pin
 /// @tparam T Type of data input
-template<class T> class InputPin : public Pin<T>
+template<class T> class InputPin : public Pin<T>, public EnableRwLockFromThis<InputPin<T>>
 {
 public:
-    InputPin(INode &node, RwLock<InputPin<T>> &me): Pin<T>(node), m_me(me) {}
+    InputPin(INode &node): Pin<T>(node) {}
 
     /// @brief Connect output pin (implemented below to solve catch22)
     void Connect(OutputPin<T> &pin);
@@ -142,21 +142,22 @@ public:
 
     InputPinPtr<T> shared_from_this() const
     {
-        return InputPinPtr<T>(Pin<T>::GetOwningNode().shared_from_this(), &m_me);
+        return InputPinPtr<T>(
+            Pin<T>::GetOwningNode().shared_from_this(), 
+            EnableRwLockFromThis<InputPin<T>>::lock_from_this());
     }
 
 private:
-    RwLock<InputPin<T>> &m_me;
     // Must be weak, as it is the node that owns the pins
     std::weak_ptr<RwLock<OutputPin<T>>> m_connection;
 };
 
 /// @brief Output pin
 /// @tparam T Type of data output
-template<class T> class OutputPin : public Pin<T>
+template<class T> class OutputPin : public Pin<T> , public EnableRwLockFromThis<OutputPin<T>>
 {
 public:
-    OutputPin(INode &node, RwLock<OutputPin<T>> &me): Pin<T>(node), m_me(me) {}
+    OutputPin(INode &node): Pin<T>(node) {}
 
     /// @brief Connect output pin
     void Connect(InputPin<T> &pin)
@@ -252,11 +253,12 @@ public:
     
     OutputPinPtr<T> shared_from_this() const
     {
-        return OutputPinPtr<T>(Pin<T>::GetOwningNode().shared_from_this(), &m_me);
+        return OutputPinPtr<T>(
+            Pin<T>::GetOwningNode().shared_from_this(),
+            EnableRwLockFromThis<OutputPin<T>>::lock_from_this());
     }
 
 private:
-    RwLock<OutputPin<T>> &m_me;
     // Must be weak, as it is the node that owns the pins
     std::set<std::weak_ptr<RwLock<InputPin<T>>>, weak_ptr_compare<RwLock<InputPin<T>>>> m_connections;
 };
@@ -330,7 +332,7 @@ template<class T> class SourceNode : public INode, public IValueLoader<T>
 {
 public:
     ~SourceNode() { DBG("~SourceNode()"); }
-    SourceNode() : m_outputPin{*this, m_outputPin}
+    SourceNode() : m_outputPin{*this}
     {}
 
     void ProcessForwards() const override
@@ -368,7 +370,7 @@ template<class T> class TargetNode : public INode, public IValueHolder<T>
 {
 public:
     ~TargetNode() { DBG("~TargetNode()"); }
-    TargetNode() : m_inputPin{*this, m_inputPin}
+    TargetNode() : m_inputPin{*this}
     {}
 
     void ProcessForwards() const override
@@ -403,7 +405,7 @@ template<class X, class Y, class F> class TransformNode : public INode
 {
 public:
     ~TransformNode() { DBG("~TransformNode()"); }
-    TransformNode(F f): m_function(std::move(f)), m_inputPin{*this, m_inputPin}, m_outputPin{*this, m_outputPin} {}
+    TransformNode(F f): m_function(std::move(f)), m_inputPin{*this}, m_outputPin{*this} {}
     
     void ProcessBackwards() const override
     {

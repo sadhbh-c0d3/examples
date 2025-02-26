@@ -84,11 +84,12 @@ public:
         return {std::unique_lock(m_mutex), get_ptr()};
     }
 
+private:
+    I &m_data_ref;
+    I *get_ptr() const { return &m_data_ref; }
+
 protected:
     mutable std::shared_mutex m_mutex{};
-    I &m_data_ref;
-    
-    I *get_ptr() const { return &m_data_ref; }
     
     IRwLock(I &data_ref) : m_data_ref{data_ref} {}
     ~IRwLock() {}
@@ -100,6 +101,21 @@ protected:
     IRwLock &operator=(IRwLock &&) = delete;
 };
 
+template<class T> class RwLock;
+
+/// @brief Enabled back reference from type locked to containing lock
+/// @tparam T Type of data locked
+/// @remark Inspired by enable_shared_from_this
+template<class T> class EnableRwLockFromThis
+{
+public:
+    RwLock<T> *lock_from_this() const { return m_lock; }
+
+private:
+    mutable RwLock<T> *m_lock;
+    friend class RwLock<T>;
+};
+
 /// @brief Locked data supporting unlocking for reading and writing
 /// @tparam T Type of data locked
 template<class T> class RwLock : public IRwLock<typename T::base_interface>
@@ -109,7 +125,10 @@ public:
     // we can use IRwLock<I> and then be able to downcast to RwLock<T> when needed.
     using I = typename T::base_interface;
 
-    template<class ...Args> RwLock(Args &&...args): IRwLock<I>{m_data}, m_data{std::forward<Args>(args)...} {}
+    template<class ...Args> RwLock(Args &&...args): IRwLock<I>{m_data}, m_data{std::forward<Args>(args)...}
+    {
+        set_lock_from_this(&m_data);
+    }
 
     RwLock(RwLock const &) = delete;
     RwLock &operator=(RwLock const &) = delete;
@@ -131,9 +150,15 @@ public:
 
 private:
     mutable T m_data;
-
-protected:
     T *get_ptr() const { return &m_data; }
+
+    template <class Y, std::enable_if_t<std::is_convertible_v<Y, EnableRwLockFromThis<Y>>, bool> = true>
+        void set_lock_from_this(EnableRwLockFromThis<Y> *lock_ref)
+        {
+            lock_ref->m_lock = this;
+        }
+
+    void set_lock_from_this(...) {}
 };
 
 #endif//__INCLUDED_NODEGRAPH__RW_LOCK__HPP__

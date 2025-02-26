@@ -7,7 +7,13 @@ struct Base {
     void bar() const { std::cout << "bar()" << std::endl; }
 };
 
-struct Derived : Base {
+struct Derived : Base, EnableRwLockFromThis<Derived>{
+    using base_interface = Base;
+    void baz() { std::cout << "baz()" << std::endl; }
+    void zab() const { std::cout << "zab()" << std::endl; }
+};
+
+struct Derived2 : Base {
     using base_interface = Base;
     void baz() { std::cout << "baz()" << std::endl; }
     void zab() const { std::cout << "zab()" << std::endl; }
@@ -34,4 +40,15 @@ void rwlock_test()
         auto maybe = base.try_read<Derived>();
         maybe.value()->zab();
     }
+
+    {
+        Derived *d = derived.write().get();
+        auto rw_lock = d->lock_from_this();
+        rw_lock->read()->bar();
+    }
+
+    RwLock<Derived2> derived2;
+
+    derived2.read()->bar();
+    derived2.write()->baz();
 }
