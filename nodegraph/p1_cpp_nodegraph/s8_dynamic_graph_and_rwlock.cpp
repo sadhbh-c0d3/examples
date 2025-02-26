@@ -10,35 +10,39 @@
 #include "helpers.hpp"
 
 // local namespace
-namespace {
+namespace ns8 {
 
-struct INode;
+struct IGraphNode;
 
 using Action = std::function<void ()>;
 
-struct IPin
+template<class T> using Arc = std::shared_ptr<T>;
+template<class T> using Weak = std::weak_ptr<T>;
+template<class T> using EnableArcFromThis = std::enable_shared_from_this<T>;
+
+struct IGraphPin
 {
-    virtual INode &GetOwningNode() const = 0;
+    virtual IGraphNode &GetOwningNode() const = 0;
 
     virtual bool IsConnected() const = 0;
-    virtual bool TryConnect(IRwLock<IPin> &otherPin) = 0;
+    virtual bool TryConnect(IRwLock<IGraphPin> &otherPin) = 0;
     [[nodiscard]] virtual Action Disconnect() = 0;
 
 protected:
-    IPin() {}
-    ~IPin() {}
+    IGraphPin() {}
+    ~IGraphPin() {}
 
-    IPin(IPin const &) = delete;
-    IPin(IPin &&) = delete;
+    IGraphPin(IGraphPin const &) = delete;
+    IGraphPin(IGraphPin &&) = delete;
 
-    IPin &operator=(IPin const &) = delete;
-    IPin &operator=(IPin &&) = delete;
+    IGraphPin &operator=(IGraphPin const &) = delete;
+    IGraphPin &operator=(IGraphPin &&) = delete;
 };
 
-using IPinPtr = std::shared_ptr<IRwLock<IPin>>;
+using IGraphPinPtr = Arc<IRwLock<IGraphPin>>;
 
 /// @brief General node interface
-struct INode : std::enable_shared_from_this<INode>
+struct IGraphNode : EnableArcFromThis<IGraphNode>
 {
     virtual void ProcessForwards() const = 0;
     virtual void ProcessBackwards() const = 0;
@@ -46,31 +50,31 @@ struct INode : std::enable_shared_from_this<INode>
     virtual bool HasInputs() const = 0;
     virtual bool HasOutputs() const = 0;
 
-    virtual std::set<IPinPtr> GetInputPins() const = 0;
-    virtual std::set<IPinPtr> GetOutputPins() const = 0;
+    virtual std::set<IGraphPinPtr> GetInputPins() const = 0;
+    virtual std::set<IGraphPinPtr> GetOutputPins() const = 0;
 
 protected:
-    INode() {}
-    ~INode() {}
+    IGraphNode() {}
+    ~IGraphNode() {}
 
-    INode(INode const &) = delete;
-    INode(INode &&) = delete;
+    IGraphNode(IGraphNode const &) = delete;
+    IGraphNode(IGraphNode &&) = delete;
 
-    INode &operator= (INode const &) = delete;
-    INode &operator= (INode &&) = delete;
+    IGraphNode &operator= (IGraphNode const &) = delete;
+    IGraphNode &operator= (IGraphNode &&) = delete;
 };
 
-using INodePtr = std::shared_ptr<INode>;
+using IGraphNodePtr = Arc<IGraphNode>;
 
 /// @brief Universal pin
 /// @tparam T Type of data stored in this pin
-template<class T> class Pin : public IPin
+template<class T> class GraphPin : public IGraphPin
 {
 public:
-    using base_interface = IPin;
+    using base_interface = IGraphPin;
 
     /// @brief Obtain owning node
-    INode &GetOwningNode() const override { return m_node; }
+    IGraphNode &GetOwningNode() const override { return m_node; }
 
     /// @brief Set data stored in this pin
     template<class X> void SetData(X &&x) { m_data = std::forward<X>(x); }
@@ -80,38 +84,38 @@ public:
 
 private:
     // Node owns this pin
-    INode &m_node;
+    IGraphNode &m_node;
     T m_data;
 
 protected:
     /// @brief Create pin attached to specific node
-    Pin(INode &node): m_node(node), m_data{} {}
+    GraphPin(IGraphNode &node): m_node(node), m_data{} {}
 };
 
-template<class T> class InputPin;
-template<class T> class OutputPin;
+template<class T> class GraphInputPin;
+template<class T> class GraphOutputPin;
 
-template<class T> using InputPinPtr = std::shared_ptr<RwLock<InputPin<T>>>;
-template<class T> using OutputPinPtr = std::shared_ptr<RwLock<OutputPin<T>>>;
+template<class T> using GraphInputPinPtr = Arc<RwLock<GraphInputPin<T>>>;
+template<class T> using GraphOutputPinPtr = Arc<RwLock<GraphOutputPin<T>>>;
 
 /// @brief Input pin
 /// @tparam T Type of data input
-template<class T> class InputPin : public Pin<T>, public EnableRwLockFromThis<InputPin<T>>
+template<class T> class GraphInputPin : public GraphPin<T>, public EnableRwLockFromThis<GraphInputPin<T>>
 {
 public:
-    InputPin(INode &node): Pin<T>(node) {}
+    GraphInputPin(IGraphNode &node): GraphPin<T>(node) {}
 
     /// @brief Connect output pin (implemented below to solve catch22)
-    void Connect(OutputPin<T> &pin);
+    void Connect(GraphOutputPin<T> &pin);
     
-    bool TryConnect(IRwLock<IPin> &otherPin) override;
+    bool TryConnect(IRwLock<IGraphPin> &otherPin) override;
 
     /// @brief Receive data from the other connected pin into this pin
     void ReceiveData()
     {
         if (auto connectedPin = GetConnectedPin(); connectedPin)
         {
-            Pin<T>::SetData(connectedPin->read()->GetData());
+            GraphPin<T>::SetData(connectedPin->read()->GetData());
         }
     }
     
@@ -120,13 +124,13 @@ public:
     {
         if (auto connectedPin = GetConnectedPin(); connectedPin)
         {
-            INode &node = connectedPin->read()->GetOwningNode();
+            IGraphNode &node = connectedPin->read()->GetOwningNode();
             node.ProcessBackwards();
         }
     }
     
     /// @brief Obtain connected pin
-    OutputPinPtr<T> GetConnectedPin() const { return m_connection.lock(); }
+    GraphOutputPinPtr<T> GetConnectedPin() const { return m_connection.lock(); }
 
     /// @brief Tell if pin is connected
     /// @return 
@@ -140,27 +144,27 @@ public:
     
     Action OutputDisconnecting();
 
-    InputPinPtr<T> shared_from_this() const
+    GraphInputPinPtr<T> shared_from_this() const
     {
-        return InputPinPtr<T>(
-            Pin<T>::GetOwningNode().shared_from_this(), 
-            EnableRwLockFromThis<InputPin<T>>::lock_from_this());
+        return GraphInputPinPtr<T>(
+            GraphPin<T>::GetOwningNode().shared_from_this(), 
+            EnableRwLockFromThis<GraphInputPin<T>>::lock_from_this());
     }
 
 private:
     // Must be weak, as it is the node that owns the pins
-    std::weak_ptr<RwLock<OutputPin<T>>> m_connection;
+    Weak<RwLock<GraphOutputPin<T>>> m_connection;
 };
 
 /// @brief Output pin
 /// @tparam T Type of data output
-template<class T> class OutputPin : public Pin<T> , public EnableRwLockFromThis<OutputPin<T>>
+template<class T> class GraphOutputPin : public GraphPin<T> , public EnableRwLockFromThis<GraphOutputPin<T>>
 {
 public:
-    OutputPin(INode &node): Pin<T>(node) {}
+    GraphOutputPin(IGraphNode &node): GraphPin<T>(node) {}
 
     /// @brief Connect output pin
-    void Connect(InputPin<T> &pin)
+    void Connect(GraphInputPin<T> &pin)
     {
         DBG("Connect: OutputPin ==> InputPin");
 
@@ -171,11 +175,11 @@ public:
         }
     }
     
-    bool TryConnect(IRwLock<IPin> &otherPin) override
+    bool TryConnect(IRwLock<IGraphPin> &otherPin) override
     {
         DBG("TryConnect: OutputPin ==> InputPin");
 
-        if (auto inputPin = otherPin.try_write<InputPin<T>>(); inputPin.has_value())
+        if (auto inputPin = otherPin.try_write<GraphInputPin<T>>(); inputPin.has_value())
         {
             Connect(*inputPin.value());
             return true;
@@ -188,7 +192,7 @@ public:
     {
         for (auto &connectedPin : GetConnectedPins())
         {
-            connectedPin->write()->SetData(Pin<T>::GetData());
+            connectedPin->write()->SetData(GraphPin<T>::GetData());
         }
     }
 
@@ -197,15 +201,15 @@ public:
     {
         for (auto &connectedPin : GetConnectedPins())
         {
-            INode &node = connectedPin->read()->GetOwningNode();
+            IGraphNode &node = connectedPin->read()->GetOwningNode();
             node.ProcessForwards();
         }
     }
     
     /// @brief Obtain connected pin
-    std::set<InputPinPtr<T>> GetConnectedPins() const
+    std::set<GraphInputPinPtr<T>> GetConnectedPins() const
     {
-        std::set<InputPinPtr<T>> pins;
+        std::set<GraphInputPinPtr<T>> pins;
         
         for (auto &pin : m_connections)
         {
@@ -226,7 +230,7 @@ public:
         return false;
     }
 
-    void DisconnectPin(InputPin<T> &pin)
+    void DisconnectPin(GraphInputPin<T> &pin)
     {
         if (auto pos = m_connections.find(pin.shared_from_this()); pos != m_connections.end())
         {
@@ -251,22 +255,22 @@ public:
         };
     }
     
-    OutputPinPtr<T> shared_from_this() const
+    GraphOutputPinPtr<T> shared_from_this() const
     {
-        return OutputPinPtr<T>(
-            Pin<T>::GetOwningNode().shared_from_this(),
-            EnableRwLockFromThis<OutputPin<T>>::lock_from_this());
+        return GraphOutputPinPtr<T>(
+            GraphPin<T>::GetOwningNode().shared_from_this(),
+            EnableRwLockFromThis<GraphOutputPin<T>>::lock_from_this());
     }
 
 private:
     // Must be weak, as it is the node that owns the pins
-    std::set<std::weak_ptr<RwLock<InputPin<T>>>, weak_ptr_compare<RwLock<InputPin<T>>>> m_connections;
+    std::set<Weak<RwLock<GraphInputPin<T>>>, weak_ptr_compare<RwLock<GraphInputPin<T>>>> m_connections;
 };
 
-template<class T> Action InputPin<T>::Disconnect()
+template<class T> Action GraphInputPin<T>::Disconnect()
 {
     // Since we're disconnecting input, we need to drop old data
-    Pin<T>::SetData(T{});
+    GraphPin<T>::SetData(T{});
 
     if (!m_connection.expired())
     {
@@ -283,26 +287,26 @@ template<class T> Action InputPin<T>::Disconnect()
     }
     
     // The lock acquired to read owning node is now gone, and we can go ahead and tell node to propagate
-    return [node = Pin<T>::GetOwningNode().shared_from_this()]() {
+    return [node = GraphPin<T>::GetOwningNode().shared_from_this()]() {
         node->ProcessForwards();
     };
 }
 
-template<class T> Action InputPin<T>::OutputDisconnecting()
+template<class T> Action GraphInputPin<T>::OutputDisconnecting()
 {
     // Since we're disconnecting input, we need to drop old data
-    Pin<T>::SetData(T{});
+    GraphPin<T>::SetData(T{});
 
     m_connection.reset();
 
     // The lock acquired to read owning node is now gone, and we can go ahead and tell node to propagate
-    return [node = Pin<T>::GetOwningNode().shared_from_this()]() {
+    return [node = GraphPin<T>::GetOwningNode().shared_from_this()]() {
         node->ProcessForwards();
     };
 }
 
 // Implementation of InputPin::Connect
-template<class T> void InputPin<T>::Connect(OutputPin<T> &pin)
+template<class T> void GraphInputPin<T>::Connect(GraphOutputPin<T> &pin)
 {
     DBG("Connect: InputPin ==> OutputPin");
 
@@ -314,11 +318,11 @@ template<class T> void InputPin<T>::Connect(OutputPin<T> &pin)
     }
 }
 
-template<class T> bool InputPin<T>::TryConnect(IRwLock<IPin> &otherPin)
+template<class T> bool GraphInputPin<T>::TryConnect(IRwLock<IGraphPin> &otherPin)
 {
     DBG("TryConnect: InputPin ==> OutputPin");
 
-    if (auto inputPin = otherPin.try_write<OutputPin<T>>(); inputPin.has_value())
+    if (auto inputPin = otherPin.try_write<GraphOutputPin<T>>(); inputPin.has_value())
     {
         Connect(*inputPin.value());
         return true;
@@ -326,9 +330,9 @@ template<class T> bool InputPin<T>::TryConnect(IRwLock<IPin> &otherPin)
     return false;
 }
 
-/// @brief INode that will provide data
+/// @brief IGraphNode that will provide data
 /// @tparam T Type of source data
-template<class T> class SourceNode : public INode, public IValueLoader<T>
+template<class T> class SourceNode : public IGraphNode, public IValueLoader<T>
 {
 public:
     ~SourceNode() { DBG("~SourceNode()"); }
@@ -351,8 +355,8 @@ public:
     bool HasInputs() const override { return false; }
     bool HasOutputs() const override { return true; }
 
-    std::set<IPinPtr> GetInputPins() const override { return {}; }
-    std::set<IPinPtr> GetOutputPins() const override { return {m_outputPin.read()->shared_from_this() }; }
+    std::set<IGraphPinPtr> GetInputPins() const override { return {}; }
+    std::set<IGraphPinPtr> GetOutputPins() const override { return {m_outputPin.read()->shared_from_this() }; }
 
     void LoadValue(T &&value) override
     {
@@ -361,12 +365,12 @@ public:
     }
 
 private:
-    RwLock<OutputPin<T>> m_outputPin;
+    RwLock<GraphOutputPin<T>> m_outputPin;
 };
 
-/// @brief INode that will receive final result of all procesing
+/// @brief IGraphNode that will receive final result of all procesing
 /// @tparam T Type of final result data
-template<class T> class TargetNode : public INode, public IValueHolder<T>
+template<class T> class TargetNode : public IGraphNode, public IValueHolder<T>
 {
 public:
     ~TargetNode() { DBG("~TargetNode()"); }
@@ -389,8 +393,8 @@ public:
     bool HasInputs() const override { return true; }
     bool HasOutputs() const override { return false; }
 
-    std::set<IPinPtr> GetInputPins() const override { return { m_inputPin.read()->shared_from_this() }; }
-    std::set<IPinPtr> GetOutputPins() const override { return {}; }
+    std::set<IGraphPinPtr> GetInputPins() const override { return { m_inputPin.read()->shared_from_this() }; }
+    std::set<IGraphPinPtr> GetOutputPins() const override { return {}; }
 
     T const &GetValue() const override
     {
@@ -398,10 +402,10 @@ public:
     }
 
 private:
-    RwLock<InputPin<T>> m_inputPin;
+    RwLock<GraphInputPin<T>> m_inputPin;
 };
 
-template<class X, class Y, class F> class TransformNode : public INode
+template<class X, class Y, class F> class TransformNode : public IGraphNode
 {
 public:
     ~TransformNode() { DBG("~TransformNode()"); }
@@ -431,13 +435,13 @@ public:
     bool HasInputs() const override { return true; }
     bool HasOutputs() const override { return true; }
 
-    std::set<IPinPtr> GetInputPins() const override { return {m_inputPin.read()->shared_from_this()}; }
-    std::set<IPinPtr> GetOutputPins() const override { return {m_outputPin.read()->shared_from_this()}; }
+    std::set<IGraphPinPtr> GetInputPins() const override { return {m_inputPin.read()->shared_from_this()}; }
+    std::set<IGraphPinPtr> GetOutputPins() const override { return {m_outputPin.read()->shared_from_this()}; }
 
 private:
     F m_function;
-    RwLock<InputPin<X>> m_inputPin;
-    RwLock<OutputPin<Y>> m_outputPin;
+    RwLock<GraphInputPin<X>> m_inputPin;
+    RwLock<GraphOutputPin<Y>> m_outputPin;
 
     X ReceiveData() const
     {
@@ -460,50 +464,50 @@ public:
     ~NodeGraph() { DBG("~NodeGraph()"); }
 
     template<class NodeT>
-    NodeGraph &AddNode(std::shared_ptr<NodeT> const &nodePtr)
+    NodeGraph &AddNode(Arc<NodeT> const &nodePtr)
     {
         m_nodes.emplace(std::move(nodePtr));
         return *this;
     }
 
-    std::set<INodePtr> GetSourceNodes() const
+    std::set<IGraphNodePtr> GetSourceNodes() const
     {
         auto predicate = [](auto &nodePtr) { return nodePtr->HasOutputs() and not nodePtr->HasInputs(); };
         return GetMatchingNodes(std::move(predicate));
     }
 
-    std::set<INodePtr> GetTargetNodes() const
+    std::set<IGraphNodePtr> GetTargetNodes() const
     {
         auto predicate = [](auto &nodePtr) { return nodePtr->HasInputs() and not nodePtr->HasOutputs(); };
         return GetMatchingNodes(std::move(predicate));
     }
 
-    std::set<INodePtr> GetTransformNodes() const
+    std::set<IGraphNodePtr> GetTransformNodes() const
     {
         auto predicate = [](auto &nodePtr) { return nodePtr->HasInputs() and nodePtr->HasOutputs(); };
         return GetMatchingNodes(std::move(predicate));
     }
 
     template<class NodeType>
-        std::set<std::shared_ptr<NodeType>> GetNodesOfType() const
+        std::set<Arc<NodeType>> GetNodesOfType() const
         {
             auto projection = [] (auto &nodePtr) { return std::dynamic_pointer_cast<NodeType>(nodePtr); };
-            std::set<std::shared_ptr<NodeType>> nodes{};
+            std::set<Arc<NodeType>> nodes{};
             std::ranges::transform(m_nodes, std::inserter(nodes, nodes.begin()), projection);
-            nodes.erase(std::shared_ptr<NodeType>{});
+            nodes.erase(Arc<NodeType>{});
             return std::move(nodes);
         }
 
     template<class Predicate>
-        std::set<INodePtr> GetMatchingNodes(Predicate &&predicate) const
+        std::set<IGraphNodePtr> GetMatchingNodes(Predicate &&predicate) const
         {
-            std::set<INodePtr> nodes{};
+            std::set<IGraphNodePtr> nodes{};
             std::ranges::copy_if(m_nodes, std::inserter(nodes, nodes.begin()), predicate);
             return std::move(nodes);
         }
 
 private:
-    std::set<INodePtr> m_nodes;
+    std::set<IGraphNodePtr> m_nodes;
 };
 
 struct ExampleDataSample
@@ -531,9 +535,9 @@ struct ExampleDataResultV
     double v;
 };
 
-using ExampleDataSamplePtr = std::shared_ptr<ExampleDataSample>;
-using ExampleDataResultUPtr = std::shared_ptr<ExampleDataResultU>;
-using ExampleDataResultVPtr = std::shared_ptr<ExampleDataResultV>;
+using ExampleDataSamplePtr = Arc<ExampleDataSample>;
+using ExampleDataResultUPtr = Arc<ExampleDataResultU>;
+using ExampleDataResultVPtr = Arc<ExampleDataResultV>;
 
 std::ostream &operator <<(std::ostream &os, ExampleDataSamplePtr const &data)
 {
@@ -621,6 +625,8 @@ void add_example_nodes_to_graph(NodeGraph &graph)
 
 } // end of local namespace
 
+using namespace ns8;
+
 void test_s8_dynamic_graph_and_lock()
 {
     std::cout << "TEST: test_s8_dynamic_graph_and_rwlock" << std::endl;
@@ -646,7 +652,7 @@ void test_s8_dynamic_graph_and_lock()
     auto sourcePin = *std::begin(sourceOutputPins);
 
     auto sourcePinGetData = [sourcePin] {
-        auto sourceOutputPin = sourcePin->try_read<OutputPin<ExampleDataSamplePtr>>();
+        auto sourceOutputPin = sourcePin->try_read<GraphOutputPin<ExampleDataSamplePtr>>();
         assert(sourceOutputPin.has_value());
         return sourceOutputPin.value()->GetData();
     };
@@ -678,16 +684,16 @@ void test_s8_dynamic_graph_and_lock()
     auto transformUNodes = graph.GetMatchingNodes([](auto const &ptr) {
         if (ptr->HasInputs()) {
             auto pins = ptr->GetOutputPins();
-            return pins.end() != std::ranges::find_if(pins, [](std::shared_ptr<IRwLock<IPin>> const &pin) {
-                return pin->try_read<OutputPin<ExampleDataResultUPtr>>().has_value(); });
+            return pins.end() != std::ranges::find_if(pins, [](Arc<IRwLock<IGraphPin>> const &pin) {
+                return pin->try_read<GraphOutputPin<ExampleDataResultUPtr>>().has_value(); });
         }
         return false;
     });
     auto transformVNodes = graph.GetMatchingNodes([](auto const &ptr) {
         if (ptr->HasInputs()) {
             auto pins = ptr->GetOutputPins();
-            return pins.end() != std::ranges::find_if(pins, [](std::shared_ptr<IRwLock<IPin>> const &pin) {
-                return pin->try_read<OutputPin<ExampleDataResultVPtr>>().has_value(); });
+            return pins.end() != std::ranges::find_if(pins, [](Arc<IRwLock<IGraphPin>> const &pin) {
+                return pin->try_read<GraphOutputPin<ExampleDataResultVPtr>>().has_value(); });
         }
         return false;
     });
