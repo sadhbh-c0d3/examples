@@ -19,9 +19,9 @@ public:
         m_data = std::move(other.m_data);
     }
 
-    T *get() { return m_data; }
-    T *operator->() { return m_data; }
-    T& operator*() { return *m_data; }
+    T *get() const { return m_data; }
+    T *operator->() const { return m_data; }
+    T& operator*() const { return *m_data; }
 
 private:
     L m_lock;

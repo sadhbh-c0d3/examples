@@ -466,26 +466,26 @@ public:
         return *this;
     }
 
-    std::set<INodePtr> GetSourceNodes()
+    std::set<INodePtr> GetSourceNodes() const
     {
         auto predicate = [](auto &nodePtr) { return nodePtr->HasOutputs() and not nodePtr->HasInputs(); };
         return GetMatchingNodes(std::move(predicate));
     }
 
-    std::set<INodePtr> GetTargetNodes()
+    std::set<INodePtr> GetTargetNodes() const
     {
         auto predicate = [](auto &nodePtr) { return nodePtr->HasInputs() and not nodePtr->HasOutputs(); };
         return GetMatchingNodes(std::move(predicate));
     }
 
-    std::set<INodePtr> GetTransformNodes()
+    std::set<INodePtr> GetTransformNodes() const
     {
         auto predicate = [](auto &nodePtr) { return nodePtr->HasInputs() and nodePtr->HasOutputs(); };
         return GetMatchingNodes(std::move(predicate));
     }
 
     template<class NodeType>
-        std::set<std::shared_ptr<NodeType>> GetNodesOfType()
+        std::set<std::shared_ptr<NodeType>> GetNodesOfType() const
         {
             auto projection = [] (auto &nodePtr) { return std::dynamic_pointer_cast<NodeType>(nodePtr); };
             std::set<std::shared_ptr<NodeType>> nodes{};
@@ -495,7 +495,7 @@ public:
         }
 
     template<class Predicate>
-        std::set<INodePtr> GetMatchingNodes(Predicate &&predicate)
+        std::set<INodePtr> GetMatchingNodes(Predicate &&predicate) const
         {
             std::set<INodePtr> nodes{};
             std::ranges::copy_if(m_nodes, std::inserter(nodes, nodes.begin()), predicate);
