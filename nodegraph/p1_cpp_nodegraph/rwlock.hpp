@@ -33,7 +33,7 @@ private:
 
 /// @brief Lock guard of data unlocked for reading
 /// @tparam T Type of unlocked data
-template<class T> using RwLockRead = RwLockGuard<std::shared_lock<std::shared_mutex>, T>;
+template<class T> using RwLockRead = RwLockGuard<std::shared_lock<std::shared_mutex>, T const>;
 
 /// @brief Lock guard of data unlocked for writing
 /// @tparam T Type of unlocked data
@@ -61,11 +61,11 @@ public:
     /// @brief Test for concrete data type and unlock for reading
     /// @tparam T Type of data to be unlocked
     /// @return Optional unlocked data
-    template<class T> std::optional<RwLockRead<T const>> try_read() const
+    template<class T> std::optional<RwLockRead<T>> try_read() const
     {
         if (T const *ptr = dynamic_cast<T const *>(get_ptr()); nullptr != ptr)
         {
-            return RwLockRead<T const>(std::shared_lock(m_mutex), ptr);
+            return RwLockRead<T>(std::shared_lock(m_mutex), ptr);
         }
         else { 
             return {};
@@ -73,7 +73,7 @@ public:
     }
     
     /// @brief Unlock abstract data for reading
-    RwLockRead<I const> read() const
+    RwLockRead<I> read() const
     {
         return {std::shared_lock(m_mutex), get_ptr()};
     }
@@ -135,9 +135,9 @@ public:
 
     /// @brief Unlock data for reading
     /// @remark This is shared lock, and can be acquired multiple times simultaneously.
-    RwLockRead<T const> read() const
+    RwLockRead<T> read() const
     {
-        return RwLockRead<T const>(std::shared_lock{IRwLock<I>::m_mutex}, get_ptr());
+        return RwLockRead<T>(std::shared_lock{IRwLock<I>::m_mutex}, get_ptr());
     }
 
     /// @brief Unlock data for writing
