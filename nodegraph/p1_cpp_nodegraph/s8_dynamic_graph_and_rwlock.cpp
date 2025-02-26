@@ -9,9 +9,6 @@
 #include "weak_ptr_compare.hpp"
 #include "helpers.hpp"
 
-#define DBG(expr)
-// #define DBG(expr) std::cout << "DBG> " << expr << std::endl
-
 // local namespace
 namespace {
 
