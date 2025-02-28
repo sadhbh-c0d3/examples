@@ -163,7 +163,7 @@ public:
         return RwLockWrite<T>(std::unique_lock{IRwLock<I>::m_mutex}, get_ptr());
     }
 
-    T *unguarded_ptr() const { return &m_data; }
+    T const *unguarded_ptr() const { return &m_data; }
 
 private:
     mutable T m_data;
