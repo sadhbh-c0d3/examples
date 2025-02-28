@@ -779,8 +779,9 @@ void test_s9_dynamic_graph_and_deferred()
                << targetUHolder->GetValue() << " and " << targetVHolder->GetValue() << std::endl;
     
     // Let's disconnect one of the transform nodes
-    auto action1 = transformVInputPin->write()->Disconnect();
-    run_synchronously(action1);
+    if (auto action = transformVInputPin->write()->Disconnect(); action.has_value()) {
+        run_synchronously(action);
+    }
 
     std::cout << "After disconnecting V transform" << std::endl;
 
@@ -800,8 +801,9 @@ void test_s9_dynamic_graph_and_deferred()
                << targetUHolder->GetValue() << " and " << targetVHolder->GetValue() << std::endl;
     
     // Let's disconnect source
-    auto action2 = sourcePin->write()->Disconnect();
-    run_synchronously(action2);
+    if (auto action = sourcePin->write()->Disconnect(); action.has_value()) {
+        run_synchronously(action);
+    }
     
     std::cout << "After disconnecting source" << std::endl;
 
