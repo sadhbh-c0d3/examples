@@ -8,6 +8,7 @@ void test_s5_dynamic_graph_and_try_connect();
 void test_s6_dynamic_graph_and_fork();
 void test_s7_dynamic_graph_and_fork_fix();
 void test_s8_dynamic_graph_and_lock();
+void test_s9_dynamic_graph_and_deferred();
 
 int main(int argc, char **argv)
 {
@@ -35,6 +36,9 @@ int main(int argc, char **argv)
 
     // S8: Locking
     test_s8_dynamic_graph_and_lock();
+
+    // S9: Async
+    test_s9_dynamic_graph_and_deferred();
 
     return 0;
 }

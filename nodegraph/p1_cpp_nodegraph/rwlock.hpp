@@ -4,19 +4,34 @@
 #include<optional>
 #include<shared_mutex>
 
+#include "helpers.hpp"
+
+//#define RWLOCK_DBG(expr)
+#define RWLOCK_DBG(expr) DBG(expr)
+
 /// @brief Lock guard for unlocked data
 /// @tparam L Type of lock used
 /// @tparam T Type of data unlocked
 template<class L, class T> class RwLockGuard
 {
 public:
-    RwLockGuard(L &&m, T *d): m_lock{std::move(m)}, m_data{d} {}
+    RwLockGuard(L &&m, T *d): m_lock{std::move(m)}, m_data{d}
+    {
+        RWLOCK_DBG("RwLockGuard: {{{ " << m_data);
+    }
 
-    RwLockGuard(RwLockGuard &&other): m_lock{std::move(other.m_lock)}, m_data{std::move(other.m_data)} {}
+    ~RwLockGuard()
+    {
+        RWLOCK_DBG("RwLockGuard: " << (m_data ? "}}} " : "~ ") << m_data);
+    }
+
+    RwLockGuard(RwLockGuard &&other): m_lock{std::move(other.m_lock)}, m_data{std::exchange(other.m_data, nullptr)}
+    {
+    }
     RwLockGuard &operator=(RwLockGuard &&other)
     {
         m_lock = std::move(other.m_lock);
-        m_data = std::move(other.m_data);
+        m_data = std::exchange(other.m_data, nullptr);
     }
 
     T *get() const { return m_data; }
@@ -147,6 +162,8 @@ public:
     {
         return RwLockWrite<T>(std::unique_lock{IRwLock<I>::m_mutex}, get_ptr());
     }
+
+    T *unguarded_ptr() const { return &m_data; }
 
 private:
     mutable T m_data;
