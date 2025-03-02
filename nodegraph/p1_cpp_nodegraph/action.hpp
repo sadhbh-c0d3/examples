@@ -6,6 +6,7 @@
 #include <ranges>
 #include <optional>
 #include <vector>
+#include <ostream>
 
 #include "helpers.hpp"
 
@@ -70,20 +71,23 @@ template<class ExecutionPolicy> void run_actions(ExecutionPolicy &&policy, Actio
 
 template<const bool EnableParallel = true> struct StandardPolicy
 {
-    void operator()(Sequential sequential  DBG_PARAM(std::string dbg_indent = ""))
+    void operator()(Sequential &&sequential  DBG_PARAM(std::string dbg_indent = ""))
     {
         std::for_each(std::execution::seq, sequential.begin(), sequential.end(), [this
-            DBG_PARAM(dbg_indent)](auto &a) { run_actions(*this, a  DBG_PARAM(DBG_INDENT(dbg_indent))); });
+            DBG_PARAM(dbg_indent)](auto &&a) { run_actions(*this, 
+                std::forward<decltype(a)>(a)  DBG_PARAM(DBG_INDENT(dbg_indent))); });
     }
     
-    void operator()(Parallel parallel  DBG_PARAM(std::string dbg_indent = ""))
+    void operator()(Parallel &&parallel  DBG_PARAM(std::string dbg_indent = ""))
     {
         if constexpr (EnableParallel) {
             std::for_each(std::execution::par, parallel.begin(), parallel.end(), [this
-                DBG_PARAM(dbg_indent)](auto &a) { run_actions(*this, a  DBG_PARAM(DBG_INDENT(dbg_indent))); });
+                DBG_PARAM(dbg_indent)](auto &&a) { run_actions(*this,
+                    std::forward<decltype(a)>(a)  DBG_PARAM(DBG_INDENT(dbg_indent))); });
         } else {
             std::for_each(std::execution::seq, parallel.begin(), parallel.end(), [this
-                DBG_PARAM(dbg_indent)](auto &a) { run_actions(*this, a  DBG_PARAM(DBG_INDENT(dbg_indent))); });
+                DBG_PARAM(dbg_indent)](auto &&a) { run_actions(*this,
+                    std::forward<decltype(a)>(a)  DBG_PARAM(DBG_INDENT(dbg_indent))); });
         }
     }
 };
