@@ -109,6 +109,10 @@ inline Sequential defer_sequential(Action first, Action then) {
     return std::vector{ std::move(first), std::move(then) };
 }
 
+inline Parallel defer_parallel(Action first, Action then) {
+    return std::vector{ std::move(first), std::move(then) };
+}
+
 inline Sequential defer_sequential(std::vector<Action> actions) {
     return std::move(actions);
 }

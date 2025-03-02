@@ -789,8 +789,10 @@ template<class ExecutionPolicy> void s9_dynamic_graph_and_deferred(ExecutionPoli
 
     // Here we will pull the value from each target
     sourceLoader->LoadValue(std::make_shared<ExampleDataSample>(11, 5));
-    run_actions(policy, targetUNode->ProcessBackwards());
-    run_actions(policy, targetVNode->ProcessBackwards());
+    run_actions(policy, defer_parallel(
+        deferred_action([targetUNode] { return targetUNode->ProcessBackwards(); }),
+        deferred_action([targetVNode] { return targetVNode->ProcessBackwards(); })
+    ));
 
     std::cout << "Result of processing backwards: f(" << sourcePinGetData() << ") => " 
                << targetUHolder->GetValue() << " and " << targetVHolder->GetValue() << std::endl;
@@ -811,8 +813,10 @@ template<class ExecutionPolicy> void s9_dynamic_graph_and_deferred(ExecutionPoli
 
     // Here we will pull the value from each target
     sourceLoader->LoadValue(std::make_shared<ExampleDataSample>(3, 2));
-    run_actions(policy, targetUNode->ProcessBackwards());
-    run_actions(policy, targetVNode->ProcessBackwards());
+    run_actions(policy, defer_parallel(
+        deferred_action([targetUNode] { return targetUNode->ProcessBackwards(); }),
+        deferred_action([targetVNode] { return targetVNode->ProcessBackwards(); })
+    ));
 
     std::cout << "Result of processing backwards: f(" << sourcePinGetData() << ") => " 
                << targetUHolder->GetValue() << " and " << targetVHolder->GetValue() << std::endl;
@@ -833,8 +837,10 @@ template<class ExecutionPolicy> void s9_dynamic_graph_and_deferred(ExecutionPoli
 
     // Here we will pull the value from each target
     sourceLoader->LoadValue(std::make_shared<ExampleDataSample>(9, 8));
-    run_actions(policy, targetUNode->ProcessBackwards());
-    run_actions(policy, targetVNode->ProcessBackwards());
+    run_actions(policy, defer_parallel(
+        deferred_action([targetUNode] { return targetUNode->ProcessBackwards(); }),
+        deferred_action([targetVNode] { return targetVNode->ProcessBackwards(); })
+    ));
 
     std::cout << "Result of processing backwards: f(" << sourcePinGetData() << ") => " 
                << targetUHolder->GetValue() << " and " << targetVHolder->GetValue() << std::endl;
