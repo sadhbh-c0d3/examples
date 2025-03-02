@@ -42,7 +42,13 @@ struct Parallel : std::vector<Action> {
 inline Sequential::Sequential(std::vector<Action> &&actions): std::vector<Action>{std::move(actions)} {}
 inline Parallel::Parallel(std::vector<Action> &&actions): std::vector<Action>{std::move(actions)} {}
 
-template<class ExecutionPolicy> void run_actions(ExecutionPolicy &&policy, Action action
+template<class T>
+concept ExecutionPolicyConcept = requires(T policy, Sequential seq, Parallel par) {
+    { policy(std::move(seq)) } -> std::same_as<void>;
+    { policy(std::move(par)) } -> std::same_as<void>;
+};
+
+void run_actions(ExecutionPolicyConcept auto &&policy, Action action
     DBG_PARAM(std::string dbg_indent = "")) {
 
     ACTION_DBG(DBG_ID(&action) << "run_actions: " << dbg_indent << "{{ ");
@@ -109,12 +115,12 @@ inline Action deferred_action(std::function<Action()> action) {
     return Single(std::move(action));
 }
 
-inline Sequential defer_sequential(Action first, Action then) {
-    return std::vector{ std::move(first), std::move(then) };
+template<class... Actions> Sequential defer_sequential(Actions &&...actions) {
+    return std::vector<Action>{ std::forward<Actions>(actions)... };
 }
 
-inline Parallel defer_parallel(Action first, Action then) {
-    return std::vector{ std::move(first), std::move(then) };
+template<class... Actions> Parallel defer_parallel(Actions &&...actions) {
+    return std::vector<Action>{ std::forward<Actions>(actions)... };
 }
 
 inline Sequential defer_sequential(std::vector<Action> actions) {
