@@ -166,7 +166,7 @@ public:
     /// @brief Connect output pin
     void Connect(GraphInputPin<T> &pin)
     {
-        DBG("Connect: OutputPin ==> InputPin");
+        DBG(DBG_ID(this) << "Connect: OutputPin ==> InputPin");
 
         // Check if not already connected to that pin to avoid infinite loop
         if (auto const [pos, added] = m_connections.insert(pin.shared_from_this()); added)
@@ -177,7 +177,7 @@ public:
     
     bool TryConnect(IRwLock<IGraphPin> &otherPin) override
     {
-        DBG("TryConnect: OutputPin ==> InputPin");
+        DBG(DBG_ID(this) << "TryConnect: OutputPin ==> InputPin");
 
         if (auto inputPin = otherPin.try_write<GraphInputPin<T>>(); inputPin.has_value())
         {
@@ -308,7 +308,7 @@ template<class T> Action GraphInputPin<T>::OutputDisconnecting()
 // Implementation of InputPin::Connect
 template<class T> void GraphInputPin<T>::Connect(GraphOutputPin<T> &pin)
 {
-    DBG("Connect: InputPin ==> OutputPin");
+    DBG(DBG_ID(this) << "Connect: InputPin ==> OutputPin");
 
     // Check if not already connected to that pin to avoid infinite loop
     if (m_connection.expired() || m_connection.lock().get() != pin.shared_from_this().get())
@@ -320,7 +320,7 @@ template<class T> void GraphInputPin<T>::Connect(GraphOutputPin<T> &pin)
 
 template<class T> bool GraphInputPin<T>::TryConnect(IRwLock<IGraphPin> &otherPin)
 {
-    DBG("TryConnect: InputPin ==> OutputPin");
+    DBG(DBG_ID(this) << "TryConnect: InputPin ==> OutputPin");
 
     if (auto inputPin = otherPin.try_write<GraphOutputPin<T>>(); inputPin.has_value())
     {
@@ -335,13 +335,13 @@ template<class T> bool GraphInputPin<T>::TryConnect(IRwLock<IGraphPin> &otherPin
 template<class T> class SourceNode : public IGraphNode, public IValueLoader<T>
 {
 public:
-    ~SourceNode() { DBG("~SourceNode()"); }
+    ~SourceNode() { DBG(DBG_ID(this) << "~SourceNode()"); }
     SourceNode() : m_outputPin{*this}
     {}
 
     void ProcessForwards() const override
     {
-        DBG("Source.ProcessForwards");
+        DBG(DBG_ID(this) << "Source.ProcessForwards");
 
         auto guard = m_outputPin.read();
         guard->SendData();
@@ -361,7 +361,7 @@ public:
 
     void LoadValue(T &&value) override
     {
-        DBG("Source.LoadValue");
+        DBG(DBG_ID(this) << "Source.LoadValue");
         m_outputPin.write()->SetData(std::move(value));
     }
 
@@ -374,7 +374,7 @@ private:
 template<class T> class TargetNode : public IGraphNode, public IValueHolder<T>
 {
 public:
-    ~TargetNode() { DBG("~TargetNode()"); }
+    ~TargetNode() { DBG(DBG_ID(this) << "~TargetNode()"); }
     TargetNode() : m_inputPin{*this}
     {}
 
@@ -385,7 +385,7 @@ public:
 
     void ProcessBackwards() const override
     {
-        DBG("Target.ProcessBackwards");
+        DBG(DBG_ID(this) << "Target.ProcessBackwards");
 
         m_inputPin.read()->PropagateBackwards();
         m_inputPin.write()->ReceiveData();
@@ -409,12 +409,12 @@ private:
 template<class X, class Y, class F> class TransformNode : public IGraphNode
 {
 public:
-    ~TransformNode() { DBG("~TransformNode()"); }
+    ~TransformNode() { DBG(DBG_ID(this) << "~TransformNode()"); }
     TransformNode(F f): m_function(std::move(f)), m_inputPin{*this}, m_outputPin{*this} {}
     
     void ProcessBackwards() const override
     {
-        DBG("Transform.ProcessBackwards");
+        DBG(DBG_ID(this) << "Transform.ProcessBackwards");
         // If we're propagating backwards, then request came from output pin
         m_inputPin.read()->PropagateBackwards();
         // This can happen when we're pulling from output
@@ -424,7 +424,7 @@ public:
 
     void ProcessForwards() const override
     {
-        DBG("Transform.ProcessForwards");
+        DBG(DBG_ID(this) << "Transform.ProcessForwards");
         // If we're propagate forwards, then request came from input pin
         // This can happen when we're pushing new input data
         auto data = m_inputPin.read()->GetData();
@@ -461,7 +461,7 @@ private:
 class NodeGraph
 {
 public:
-    ~NodeGraph() { DBG("~NodeGraph()"); }
+    ~NodeGraph() { DBG(DBG_ID(this) << "~NodeGraph()"); }
 
     template<class NodeT>
         NodeGraph &AddNode(Arc<NodeT> &&nodePtr)
@@ -629,6 +629,8 @@ using namespace ns8;
 
 void test_s8_dynamic_graph_and_lock()
 {
+    DBG("TEST: test_s8_dynamic_graph_and_rwlock");
+
     std::cout << "TEST: test_s8_dynamic_graph_and_rwlock" << std::endl;
 
     NodeGraph graph{};

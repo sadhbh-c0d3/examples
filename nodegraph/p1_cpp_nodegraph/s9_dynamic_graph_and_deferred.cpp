@@ -166,7 +166,7 @@ public:
     /// @brief Connect output pin
     void Connect(GraphInputPin<T> &pin)
     {
-        DBG("Connect: OutputPin ==> InputPin");
+        DBG(DBG_ID(this) << "Connect: OutputPin ==> InputPin");
 
         // Check if not already connected to that pin to avoid infinite loop
         if (auto const [pos, added] = m_connections.insert(pin.shared_from_this()); added)
@@ -177,7 +177,7 @@ public:
     
     bool TryConnect(IRwLock<IGraphPin> &otherPin) override
     {
-        DBG("TryConnect: OutputPin ==> InputPin");
+        DBG(DBG_ID(this) << "TryConnect: OutputPin ==> InputPin");
 
         if (auto inputPin = otherPin.try_write<GraphInputPin<T>>(); inputPin.has_value())
         {
@@ -204,7 +204,7 @@ public:
                 return connectedPin->unguarded_ptr()->GetOwningNode().ProcessForwards();
             });
         });
-        return defer_synchronous(actions);
+        return defer_parallel(actions);
     }
     
     /// @brief Obtain connected pin
@@ -233,7 +233,7 @@ public:
 
     [[nodiscard]] Action DisconnectPin(GraphInputPin<T> &pin)
     {
-        DBG("OutputPin.DisconnectPin");
+        DBG(DBG_ID(this) << "OutputPin.DisconnectPin");
 
         if (auto pos = m_connections.find(pin.shared_from_this()); pos != m_connections.end())
         {
@@ -247,7 +247,7 @@ public:
     /// @brief Disconnect other pin
     [[nodiscard]] Action Disconnect() override
     {
-        DBG("OutputPin.Disconnect");
+        DBG(DBG_ID(this) << "OutputPin.Disconnect");
 
         auto connections = GetConnectedPins();
         m_connections.clear();
@@ -256,8 +256,8 @@ public:
             return pin->write()->OutputDisconnecting();
         });
 
-        DBG("OutputPin.Disconnect: defer actions...");
-        return defer_synchronous(actions);
+        DBG(DBG_ID(this) << "OutputPin.Disconnect: defer actions...");
+        return defer_parallel(actions);
     }
     
     GraphOutputPinPtr<T> shared_from_this() const
@@ -274,13 +274,13 @@ private:
 
 template<class T> Action GraphInputPin<T>::Disconnect()
 {
-    DBG("InputPin.Disconnect");
+    DBG(DBG_ID(this) << "InputPin.Disconnect");
     // Since we're disconnecting input, we need to drop old data
     GraphPin<T>::SetData(T{});
 
     if (!m_connection.expired())
     {
-        DBG("InputPin.Disconnect: Disconnecting...");
+        DBG(DBG_ID(this) << "InputPin.Disconnect: Disconnecting...");
 
         // Reset to prevent infinite loop
         auto connection = m_connection.lock();
@@ -293,7 +293,7 @@ template<class T> Action GraphInputPin<T>::Disconnect()
     // Source died
     m_connection.reset();
 
-    DBG("InputPin.Disconnect: Disconnected...");
+    DBG(DBG_ID(this) << "InputPin.Disconnect: Disconnected...");
     return deferred_action([_self = shared_from_this(), this]() {
             return GraphPin<T>::GetOwningNode().ProcessForwards();
         });
@@ -301,13 +301,13 @@ template<class T> Action GraphInputPin<T>::Disconnect()
 
 template<class T> Action GraphInputPin<T>::OutputDisconnecting()
 {
-    DBG("InputPin.OutputDisconnecting");
+    DBG(DBG_ID(this) << "InputPin.OutputDisconnecting");
     // Since we're disconnecting input, we need to drop old data
     GraphPin<T>::SetData(T{});
 
     m_connection.reset();
 
-    DBG("InputPin.OutputDisconnecting: ProcessForwards...");
+    DBG(DBG_ID(this) << "InputPin.OutputDisconnecting: ProcessForwards...");
     return deferred_action([_self = shared_from_this(), this]() {
             return GraphPin<T>::GetOwningNode().ProcessForwards();
         });
@@ -316,7 +316,7 @@ template<class T> Action GraphInputPin<T>::OutputDisconnecting()
 // Implementation of InputPin::Connect
 template<class T> void GraphInputPin<T>::Connect(GraphOutputPin<T> &pin)
 {
-    DBG("Connect: InputPin ==> OutputPin");
+    DBG(DBG_ID(this) << "Connect: InputPin ==> OutputPin");
 
     // Check if not already connected to that pin to avoid infinite loop
     if (m_connection.expired() || m_connection.lock().get() != pin.shared_from_this().get())
@@ -328,7 +328,7 @@ template<class T> void GraphInputPin<T>::Connect(GraphOutputPin<T> &pin)
 
 template<class T> bool GraphInputPin<T>::TryConnect(IRwLock<IGraphPin> &otherPin)
 {
-    DBG("TryConnect: InputPin ==> OutputPin");
+    DBG(DBG_ID(this) << "TryConnect: InputPin ==> OutputPin");
 
     if (auto inputPin = otherPin.try_write<GraphOutputPin<T>>(); inputPin.has_value())
     {
@@ -343,13 +343,13 @@ template<class T> bool GraphInputPin<T>::TryConnect(IRwLock<IGraphPin> &otherPin
 template<class T> class SourceNode : public IGraphNode, public IValueLoader<T>
 {
 public:
-    ~SourceNode() { DBG("~SourceNode()"); }
+    ~SourceNode() { DBG(DBG_ID(this) << "~SourceNode()"); }
     SourceNode() : m_outputPin{*this}
     {}
 
     [[nodiscard]] Action ProcessForwards() const override
     {
-        DBG("Source.ProcessForwards");
+        DBG(DBG_ID(this) << "Source.ProcessForwards");
 
         return deferred_action([_self = shared_from_this(), this]() {
             auto guard = m_outputPin.read();
@@ -360,6 +360,8 @@ public:
     
     [[nodiscard]] Action ProcessBackwards() const override
     {
+        DBG(DBG_ID(this) << "Source.ProcessBackwards");
+
         // This could be loading new value from somewhere
         return deferred_end();
     }
@@ -372,7 +374,7 @@ public:
 
     void LoadValue(T &&value) override
     {
-        DBG("Source.LoadValue");
+        DBG(DBG_ID(this) << "Source.LoadValue");
         m_outputPin.write()->SetData(std::move(value));
     }
 
@@ -385,21 +387,23 @@ private:
 template<class T> class TargetNode : public IGraphNode, public IValueHolder<T>
 {
 public:
-    ~TargetNode() { DBG("~TargetNode()"); }
+    ~TargetNode() { DBG(DBG_ID(this) << "~TargetNode()"); }
     TargetNode() : m_inputPin{*this}
     {}
 
     [[nodiscard]] Action ProcessForwards() const override
     {
+        DBG(DBG_ID(this) << "Target.ProcessForwards");
+
         // This could render result somewhere
         return {};
     }
 
     [[nodiscard]] Action ProcessBackwards() const override
     {
-        DBG("Target.ProcessBackwards");
+        DBG(DBG_ID(this) << "Target.ProcessBackwards");
 
-        return defer_synchronous(
+        return defer_sequential(
             deferred_action([_self = shared_from_this(), this]() {
                 return m_inputPin.read()->PropagateBackwards();
             }),
@@ -428,22 +432,22 @@ private:
 template<class X, class Y, class F> class TransformNode : public IGraphNode
 {
 public:
-    ~TransformNode() { DBG("~TransformNode()"); }
+    ~TransformNode() { DBG(DBG_ID(this) << "~TransformNode()"); }
     TransformNode(F f): m_function(std::move(f)), m_inputPin{*this}, m_outputPin{*this} {}
     
     [[nodiscard]] Action ProcessBackwards() const override
     {
-        DBG("Transform.ProcessBackwards");
+        DBG(DBG_ID(this) << "Transform.ProcessBackwards");
 
-        return defer_synchronous(
+        return defer_sequential(
             deferred_action([_self = shared_from_this(), this] () {
-                DBG("Transform.ProcessBackwards: Propagate...");
+                DBG(DBG_ID(this) << "Transform.ProcessBackwards: Propagate...");
                 return m_inputPin.read()->PropagateBackwards();
             }),
             deferred_action([_self = shared_from_this(), this] () {
-                DBG("Transform.ProcessBackwards: ReceiveData");
+                DBG(DBG_ID(this) << "Transform.ProcessBackwards: ReceiveData");
                 auto result = m_function(ReceiveData());
-                DBG("Transform.ProcessBackwards: SetData");
+                DBG(DBG_ID(this) << "Transform.ProcessBackwards: SetData");
                 m_outputPin.write()->SetData(std::move(result));
                 return deferred_end();
             })
@@ -452,14 +456,14 @@ public:
 
     [[nodiscard]] Action ProcessForwards() const override
     {
-        DBG("Transform.ProcessForwards " << this);
+        DBG(DBG_ID(this) << "Transform.ProcessForwards");
 
         return deferred_action([_self = shared_from_this(), this] () {
-            DBG("Transform.ProcessForwards: GetData");
+            DBG(DBG_ID(this) << "Transform.ProcessForwards: GetData");
             auto data = m_inputPin.read()->GetData();
-            DBG("Transform.ProcessForwards: SendData");
+            DBG(DBG_ID(this) << "Transform.ProcessForwards: SendData");
             SendData(m_function(std::move(data)));
-            DBG("Transform.ProcessForwards: Propagate...");
+            DBG(DBG_ID(this) << "Transform.ProcessForwards: Propagate...");
             return m_outputPin.read()->PropagateForwards();
         });
     }
@@ -493,7 +497,7 @@ private:
 class NodeGraph
 {
 public:
-    ~NodeGraph() { DBG("~NodeGraph()"); }
+    ~NodeGraph() { DBG(DBG_ID(this) << "~NodeGraph()"); }
 
     template<class NodeT>
         NodeGraph &AddNode(Arc<NodeT> &&nodePtr)
@@ -659,9 +663,11 @@ void add_example_nodes_to_graph(NodeGraph &graph)
 
 using namespace ns9;
 
-void test_s9_dynamic_graph_and_deferred()
+template<class ExecutionPolicy> void s9_dynamic_graph_and_deferred(ExecutionPolicy &&policy)
 {
-    std::cout << "TEST: test_s9_dynamic_graph_and_deferred" << std::endl;
+    DBG("TEST: test_s9_dynamic_graph_and_deferred - " << policy);
+
+    std::cout << "TEST: test_s9_dynamic_graph_and_deferred - " << policy << std::endl;
 
     NodeGraph graph{};
 
@@ -763,63 +769,81 @@ void test_s9_dynamic_graph_and_deferred()
 
     std::cout << "All set" << std::endl;
 
+    DBG(DBG_ID(sourcePin->unguarded_ptr()) << "Source.Output");
+
+    DBG(DBG_ID(transformUInputPin->unguarded_ptr()) << "Transform_u.Input");
+    DBG(DBG_ID(transformUOutputPin->unguarded_ptr()) << "Transform_u.Output");
+
+    DBG(DBG_ID(transformVInputPin->unguarded_ptr()) << "Transform_v.Input");
+    DBG(DBG_ID(transformVOutputPin->unguarded_ptr()) << "Transform_v.Output");
+
+    DBG(DBG_ID(targetUPin->unguarded_ptr()) << "Target_u.Input");
+    DBG(DBG_ID(targetVPin->unguarded_ptr()) << "Target_v.Input");
+
     // Here we will push the value from the source
     sourceLoader->LoadValue(std::make_shared<ExampleDataSample>(7, 9));
-    run_synchronously(sourceNode->ProcessForwards());
+    run_actions(policy, sourceNode->ProcessForwards());
     
     std::cout << "Result of processing forwards: f(" << sourcePinGetData() << ") => " 
               << targetUHolder->GetValue() << " and " << targetVHolder->GetValue() << std::endl;
 
     // Here we will pull the value from each target
     sourceLoader->LoadValue(std::make_shared<ExampleDataSample>(11, 5));
-    run_synchronously(targetUNode->ProcessBackwards());
-    run_synchronously(targetVNode->ProcessBackwards());
+    run_actions(policy, targetUNode->ProcessBackwards());
+    run_actions(policy, targetVNode->ProcessBackwards());
 
     std::cout << "Result of processing backwards: f(" << sourcePinGetData() << ") => " 
                << targetUHolder->GetValue() << " and " << targetVHolder->GetValue() << std::endl;
     
     // Let's disconnect one of the transform nodes
     if (auto action = transformVInputPin->write()->Disconnect(); action.has_value()) {
-        run_synchronously(action);
+        run_actions(policy, action);
     }
 
     std::cout << "After disconnecting V transform" << std::endl;
 
     // Here we will push the value from the source
     sourceLoader->LoadValue(std::make_shared<ExampleDataSample>(5, 6));
-    run_synchronously(sourceNode->ProcessForwards());
+    run_actions(policy, sourceNode->ProcessForwards());
     
     std::cout << "Result of processing forwards: f(" << sourcePinGetData() << ") => " 
               << targetUHolder->GetValue() << " and " << targetVHolder->GetValue() << std::endl;
 
     // Here we will pull the value from each target
     sourceLoader->LoadValue(std::make_shared<ExampleDataSample>(3, 2));
-    run_synchronously(targetUNode->ProcessBackwards());
-    run_synchronously(targetVNode->ProcessBackwards());
+    run_actions(policy, targetUNode->ProcessBackwards());
+    run_actions(policy, targetVNode->ProcessBackwards());
 
     std::cout << "Result of processing backwards: f(" << sourcePinGetData() << ") => " 
                << targetUHolder->GetValue() << " and " << targetVHolder->GetValue() << std::endl;
     
     // Let's disconnect source
     if (auto action = sourcePin->write()->Disconnect(); action.has_value()) {
-        run_synchronously(action);
+        run_actions(policy, action);
     }
     
     std::cout << "After disconnecting source" << std::endl;
 
     // Here we will push the value from the source
     sourceLoader->LoadValue(std::make_shared<ExampleDataSample>(1, 2));
-    run_synchronously(sourceNode->ProcessForwards());
+    run_actions(policy, sourceNode->ProcessForwards());
     
     std::cout << "Result of processing forwards: f(" << sourcePinGetData() << ") => " 
               << targetUHolder->GetValue() << " and " << targetVHolder->GetValue() << std::endl;
 
     // Here we will pull the value from each target
     sourceLoader->LoadValue(std::make_shared<ExampleDataSample>(9, 8));
-    run_synchronously(targetUNode->ProcessBackwards());
-    run_synchronously(targetVNode->ProcessBackwards());
+    run_actions(policy, targetUNode->ProcessBackwards());
+    run_actions(policy, targetVNode->ProcessBackwards());
 
     std::cout << "Result of processing backwards: f(" << sourcePinGetData() << ") => " 
                << targetUHolder->GetValue() << " and " << targetVHolder->GetValue() << std::endl;
     
+}
+
+void test_s9_dynamic_graph_and_deferred()
+{
+    s9_dynamic_graph_and_deferred(StandardPolicy<false>{});
+
+    s9_dynamic_graph_and_deferred(StandardPolicy<true>{});
 }

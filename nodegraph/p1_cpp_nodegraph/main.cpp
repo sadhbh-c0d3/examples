@@ -1,3 +1,5 @@
+#include "helpers.hpp"
+
 // We don't have a header, because we're not going to reuse these declarations
 void test_s1_static_graph();
 void test_s1_static_graph_with_shared_ptr_data();
@@ -12,6 +14,12 @@ void test_s9_dynamic_graph_and_deferred();
 
 int main(int argc, char **argv)
 {
+    if (!init_debugout()) {
+        return -1;
+    }
+
+    DBG("main");
+
     // S1: Static Node Graph
     test_s1_static_graph();
     test_s1_static_graph_with_shared_ptr_data();

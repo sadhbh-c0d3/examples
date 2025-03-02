@@ -1,15 +1,17 @@
 #include "action.hpp"
 
 Action foo () {
-    return Actionable{[]() {
-        return Action{};
-    }};
+    return deferred_action([]{
+        return deferred_end();
+    });
 }
 
 int action_test() {
-    run_synchronously(foo());
+    StandardPolicy<false> policy;
 
-    defer_synchronous(foo(), deferred_action([]() {
+    run_actions(policy, foo());
+
+    defer_sequential(foo(), deferred_action([]() {
         return deferred_end();
     }));
 

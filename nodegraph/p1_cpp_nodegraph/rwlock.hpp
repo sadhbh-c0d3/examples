@@ -6,8 +6,15 @@
 
 #include "helpers.hpp"
 
-//#define RWLOCK_DBG(expr)
-#define RWLOCK_DBG(expr) DBG(expr)
+#ifndef DBG_ENABLE_RWLOCK
+#define DBG_ENABLE_RWLOCK 0
+#endif
+
+#if DBG_ENABLE_RWLOCK
+    #define RWLOCK_DBG(expr) DBG(expr)
+#else
+    #define RWLOCK_DBG(expr)
+#endif
 
 /// @brief Lock guard for unlocked data
 /// @tparam L Type of lock used
@@ -17,17 +24,18 @@ template<class L, class T> class RwLockGuard
 public:
     RwLockGuard(L &&m, T *d): m_lock{std::move(m)}, m_data{d}
     {
-        RWLOCK_DBG("RwLockGuard: {{{ " << m_data);
+        RWLOCK_DBG(DBG_ID(m_data) << "RwLockGuard: (lock");
     }
 
     ~RwLockGuard()
     {
-        RWLOCK_DBG("RwLockGuard: " << (m_data ? "}}} " : "~ ") << m_data);
+        DBG_IF(m_data , RWLOCK_DBG(DBG_ID(m_data) << "RwLockGuard:  unlock)"));
     }
 
     RwLockGuard(RwLockGuard &&other): m_lock{std::move(other.m_lock)}, m_data{std::exchange(other.m_data, nullptr)}
     {
     }
+
     RwLockGuard &operator=(RwLockGuard &&other)
     {
         m_lock = std::move(other.m_lock);
@@ -98,6 +106,8 @@ public:
     {
         return {std::unique_lock(m_mutex), get_ptr()};
     }
+    
+    I const *unguarded_ptr() const { return &m_data_ref; }
 
 private:
     I &m_data_ref;
