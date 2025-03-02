@@ -200,9 +200,7 @@ public:
     [[nodiscard]] Action PropagateForwards() const
     {
         auto actions = trasform_into_deferred_actions(GetConnectedPins(), [](auto &&connectedPin) {
-            return deferred_action([connectedPin = std::move(connectedPin)] () {
-                return connectedPin->unguarded_ptr()->GetOwningNode().ProcessForwards();
-            });
+            return connectedPin->unguarded_ptr()->GetOwningNode().ProcessForwards();
         });
         return defer_parallel(actions);
     }
