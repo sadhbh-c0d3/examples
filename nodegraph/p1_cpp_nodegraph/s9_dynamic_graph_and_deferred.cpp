@@ -445,6 +445,7 @@ public:
             deferred_action([_self = shared_from_this(), this] () {
                 DBG(DBG_ID(this) << "Transform.ProcessBackwards: ReceiveData");
                 auto result = m_function(ReceiveData());
+                
                 DBG(DBG_ID(this) << "Transform.ProcessBackwards: SetData");
                 m_outputPin.write()->SetData(std::move(result));
                 return deferred_end();
@@ -459,8 +460,10 @@ public:
         return deferred_action([_self = shared_from_this(), this] () {
             DBG(DBG_ID(this) << "Transform.ProcessForwards: GetData");
             auto data = m_inputPin.read()->GetData();
+
             DBG(DBG_ID(this) << "Transform.ProcessForwards: SendData");
             SendData(m_function(std::move(data)));
+
             DBG(DBG_ID(this) << "Transform.ProcessForwards: Propagate...");
             return m_outputPin.read()->PropagateForwards();
         });
@@ -661,7 +664,7 @@ void add_example_nodes_to_graph(NodeGraph &graph)
 
 using namespace ns9;
 
-template<class ExecutionPolicy> void s9_dynamic_graph_and_deferred(ExecutionPolicy &&policy)
+void s9_dynamic_graph_and_deferred(ExecutionPolicyConcept auto &&policy)
 {
     DBG("TEST: test_s9_dynamic_graph_and_deferred - " << policy);
 

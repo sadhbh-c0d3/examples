@@ -23,9 +23,9 @@ std::string name_of_thread(std::thread::id id)
     std::hash<std::thread::id> hasher;
     size_t value = hasher(id);
 
-    auto animal_name = animal_names[value % (sizeof animal_names/sizeof(char*))];
+    auto animal_name = animal_names[(value >> 5) % (sizeof animal_names/sizeof(char*))];
 
-    return std::to_string(((value >> 11) % 29) + 11) + "_" + animal_name;
+    return std::to_string(((value >> 23) % 29) + 11) + "_" + animal_name;
 }
     
 std::string name_of_entity(void *id)
@@ -33,7 +33,7 @@ std::string name_of_entity(void *id)
     std::hash<void*> hasher;
     size_t value = hasher(id);
 
-    auto plant_name = plant_names[value % (sizeof plant_names/sizeof(char*))];
+    auto plant_name = plant_names[(value >> 5) % (sizeof plant_names/sizeof(char*))];
 
-    return std::to_string(((value >> 11) % 29) + 11) + "_" + plant_name;
+    return std::to_string(((value >> 23) % 29) + 11) + "_" + plant_name;
 }
