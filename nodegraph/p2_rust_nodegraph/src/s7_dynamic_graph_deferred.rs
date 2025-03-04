@@ -11,8 +11,8 @@ pub enum Actionable {
 
 type Action = Option<Actionable>;
 
-pub fn defer_action(action: Box<dyn Fn() -> Action + Send + Sync>) -> Action {
-    Some(Actionable::Single(action))
+pub fn defer_action(action: impl Fn() -> Action + Send + Sync + 'static) -> Action {
+    Some(Actionable::Single(Box::new(action)))
 }
 
 pub fn defer_sequential(actions: Vec<Action>) -> Action {
@@ -315,11 +315,11 @@ impl<T> GraphNode<> for SourceGraphNode<T> where T: Clone + Default + Send + Syn
 
     fn process_forwards(&self) -> Action {
         let pin = self.output_pin.clone();
-        defer_action(Box::new(move || {
+        defer_action(move || {
             let guard = pin.read().unwrap();
             guard.send_data();
             guard.propagate_forwards()
-        }))
+        })
     }
 
     fn get_inputs(&self) -> Option<Vec<Arc<RwLock<dyn GraphNodePinBase>>>> {
@@ -357,8 +357,8 @@ impl<T> GraphNode<> for TargetGraphNode<T> where T: Clone + Default + Send + Syn
         let pin1 = self.input_pin.clone();
         let pin2 = self.input_pin.clone();
         defer_sequential(vec![
-            defer_action(Box::new(move || { pin1.read().unwrap().propagate_backwards() })),
-            defer_action(Box::new(move || { pin2.write().unwrap().receive_data(); None }))])
+            defer_action(move || { pin1.read().unwrap().propagate_backwards() }),
+            defer_action(move || { pin2.write().unwrap().receive_data(); None })])
     }
 
     fn process_forwards(&self) -> Action {
@@ -421,14 +421,14 @@ where
         };
 
         defer_parallel(vec![
-            defer_action(Box::new(move || {
+            defer_action(move || {
                 input_pin1.read().unwrap().propagate_backwards()
-            })),
-            defer_action(Box::new(move || {
+            }),
+            defer_action(move || {
                 let result = func(receive_data());
                 output_pin.write().unwrap().pin.set_data(result);
                 None
-            }))
+            })
         ])
     }
 
@@ -444,11 +444,11 @@ where
             pin_write.send_data();
         };
 
-        defer_action(Box::new(move || {
+        defer_action(move || {
             let x = input_pin.read().unwrap().pin.get_data().clone();
             send_data((func)(x));
             output_pin2.read().unwrap().propagate_forwards()
-        }))
+        })
     }
 
     fn get_inputs(&self) -> Option<Vec<Arc<RwLock<dyn GraphNodePinBase>>>> {
