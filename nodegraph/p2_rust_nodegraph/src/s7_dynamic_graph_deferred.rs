@@ -294,7 +294,7 @@ pub struct SourceGraphNode<T> where T: Clone + Default + Send + Sync + 'static
 
 impl<T> SourceGraphNode<T> where T: Clone + Default + Send + Sync + 'static
 {
-    pub fn new_rc() -> Arc<dyn GraphNode> {
+    pub fn new_rc() -> Arc<dyn GraphNode + Send + Sync> {
         Arc::new_cyclic(|me| {
             Self {
                 output_pin: GraphNodeOutputPin::new_rc(me.clone() as Weak<dyn GraphNode + Send + Sync + 'static>)
@@ -338,7 +338,7 @@ pub struct TargetGraphNode<T> where T: Clone + Default + Send + Sync + 'static
 
 impl<T> TargetGraphNode<T> where T: Clone + Default + Send + Sync + 'static
 {
-    pub fn new_rc() -> Arc<dyn GraphNode> {
+    pub fn new_rc() -> Arc<dyn GraphNode + Send + Sync> {
         Arc::new_cyclic(|me| {
             Self {
                 input_pin: GraphNodeInputPin::new_rc(me.clone() as Weak<dyn GraphNode + Send + Sync + 'static>)
@@ -461,32 +461,32 @@ where
 }
 
 pub struct NodeGraph {
-    nodes: Vec<Arc<dyn GraphNode>>
+    nodes: Vec<Arc<dyn GraphNode + Send + Sync>>
 }
 
 impl NodeGraph {
-    pub fn new(nodes: Vec<Arc<dyn GraphNode>>) -> Self {
+    pub fn new(nodes: Vec<Arc<dyn GraphNode + Send + Sync>>) -> Self {
         Self {
             nodes
         }
     }
 
-    pub fn get_matching_nodes<F>(&self, f: F) -> Vec<Arc<dyn GraphNode>> 
-        where F: Fn(&&Arc<dyn GraphNode>) -> bool + 'static {
+    pub fn get_matching_nodes<F>(&self, f: F) -> Vec<Arc<dyn GraphNode + Send + Sync>> 
+        where F: Fn(&&Arc<dyn GraphNode + Send + Sync>) -> bool + 'static {
            self.nodes.iter().filter(f).cloned().collect()
     }
 
-    pub fn get_source_nodes(&self) -> Vec<Arc<dyn GraphNode>> {
+    pub fn get_source_nodes(&self) -> Vec<Arc<dyn GraphNode + Send + Sync>> {
         self.get_matching_nodes(|node|
             node.get_inputs().is_none() && node.get_outputs().is_some())
     }
     
-    pub fn get_target_nodes(&self) -> Vec<Arc<dyn GraphNode>> {
+    pub fn get_target_nodes(&self) -> Vec<Arc<dyn GraphNode + Send + Sync>> {
         self.get_matching_nodes(|node|
             node.get_inputs().is_some() && node.get_outputs().is_none())
     }
     
-    pub fn get_transform_nodes(&self) -> Vec<Arc<dyn GraphNode>> {
+    pub fn get_transform_nodes(&self) -> Vec<Arc<dyn GraphNode + Send + Sync>> {
         self.get_matching_nodes(|node|
             node.get_inputs().is_some() && node.get_outputs().is_some())
     }
@@ -532,7 +532,7 @@ fn build_some_graph() -> NodeGraph {
 }
 
 #[cfg(test)]
-fn connect_output_and_input_nodes(output_node: &Arc<dyn GraphNode>, input_node: &Arc<dyn GraphNode>)
+fn connect_output_and_input_nodes(output_node: &Arc<dyn GraphNode + Send + Sync>, input_node: &Arc<dyn GraphNode + Send + Sync>)
  -> Result<(), Box<dyn Error + 'static>>
 {
     let output_pins= output_node.get_outputs().ok_or("Cannot get output output")?;
@@ -547,7 +547,7 @@ fn connect_output_and_input_nodes(output_node: &Arc<dyn GraphNode>, input_node: 
 }
 
 #[cfg(test)]
-fn find_matching_transform_node_by_output_data_type<T>(graph: &NodeGraph) -> Option<Arc<dyn GraphNode>>
+fn find_matching_transform_node_by_output_data_type<T>(graph: &NodeGraph) -> Option<Arc<dyn GraphNode + Send + Sync>>
 where T: Clone + Default + Send + Sync + 'static {
 
     graph.get_transform_nodes().iter().find(|node| 
@@ -560,17 +560,19 @@ where T: Clone + Default + Send + Sync + 'static {
 }
 
 #[cfg(test)]
-fn find_matching_target_node_by_input_data_type<T>(graph: &NodeGraph) -> Option<Arc<dyn GraphNode>>
+fn find_matching_target_node_by_input_data_type<T>(graph: &NodeGraph) -> Option<Arc<dyn GraphNode + Send + Sync>>
 where T: Clone + Default + Send + Sync + 'static {
 
     graph.get_target_nodes().iter().find(|node| 
-        (*node).clone().downcast_ref::<TargetGraphNode<T>>().is_some()
+        {
+            ((*node).clone() as Arc<dyn GraphNode>).downcast_ref::<TargetGraphNode<T>>().is_some()
+        }
     ).cloned()
 }
 
 #[cfg(test)]
 fn connect_some_nodes(graph: &NodeGraph)
- -> Result<(Arc<dyn GraphNode>, Arc<dyn GraphNode>, Arc<dyn GraphNode>),
+ -> Result<(Arc<dyn GraphNode + Send + Sync>, Arc<dyn GraphNode + Send + Sync>, Arc<dyn GraphNode + Send + Sync>),
  Box<dyn Error + 'static>> {
 
     let source_node = graph.get_source_nodes().first().ok_or("Cannot find source node")?.clone();
@@ -641,8 +643,12 @@ fn run_graph(policy: &impl ExecutionPolicy) {
     let (source_node, target_node_u, target_node_v) = connect_result.unwrap();
 
     load_example_value(source_node.clone(), ExampleInput{x:20, y:80});
-    run_actions(policy, target_node_u.process_backwards());
-    run_actions(policy,target_node_v.process_backwards());
+    let target_node_u1 = target_node_u.clone();
+    let target_node_v1 = target_node_v.clone();
+    run_actions(policy, defer_parallel(vec![
+        defer_action(move || target_node_u1.process_backwards()),
+        defer_action(move || target_node_v1.process_backwards())
+    ]));
 
     let value2u: ExampleResultU = get_example_result(target_node_u.clone()).unwrap();
     let value2v: ExampleResultV = get_example_result(target_node_v.clone()).unwrap();
