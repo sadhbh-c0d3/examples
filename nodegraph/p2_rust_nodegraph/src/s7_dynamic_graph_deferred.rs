@@ -420,7 +420,7 @@ where
             pin_write.pin.get_data().clone()
         };
 
-        defer_parallel(vec![
+        defer_sequential(vec![
             defer_action(move || {
                 input_pin1.read().unwrap().propagate_backwards()
             }),
