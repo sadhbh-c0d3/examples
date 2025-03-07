@@ -11,12 +11,19 @@ void test_s6_dynamic_graph_and_fork();
 void test_s7_dynamic_graph_and_fork_fix();
 void test_s8_dynamic_graph_and_lock();
 void test_s9_dynamic_graph_and_deferred();
+void test_s10_dynamic_graph_and_coro();
+
+int action_test();
+void coro_test();
 
 int main(int argc, char **argv)
 {
     if (!init_debugout()) {
         return -1;
     }
+
+    coro_test();
+    action_test();
 
     DBG("main");
 
@@ -47,6 +54,9 @@ int main(int argc, char **argv)
 
     // S9: Async
     test_s9_dynamic_graph_and_deferred();
+
+    // S10: Coroutines
+    test_s10_dynamic_graph_and_coro();
 
     return 0;
 }
