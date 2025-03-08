@@ -185,7 +185,7 @@ bool Promise::next(ExecutionPolicyConcept auto &&policy
             std::exchange(m_next, {})
             DBG_PARAM(dbg_indent));
 
-        return true;
+        return false;
     }
 }
 
