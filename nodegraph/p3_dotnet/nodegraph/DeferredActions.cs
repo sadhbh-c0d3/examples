@@ -21,9 +21,9 @@
 
         public override Task Run()
         {
-            action();
+            var next = action();
 
-            return Task.CompletedTask;
+            return next.Run();
         }
 
         public readonly Func<DeferredAction> action;
