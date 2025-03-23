@@ -19,13 +19,13 @@ public class Program
 			.AddNode(transformNode1)
 			.AddNode(transformNode2);
 
-		var sourceOutPin = sourceNode.OutputPins.Single() as OutputPin<int>;
-		var target1InPin = targetNode1.InputPins.Single() as InputPin<float>;
-		var target2InPin = targetNode2.InputPins.Single() as InputPin<float>;
-		var tranform1InPin = transformNode1.InputPins.Single() as InputPin<int>;
-		var tranform1OutPin = transformNode1.OutputPins.Single() as OutputPin<float>;
-		var tranform2InPin = transformNode2.InputPins.Single() as InputPin<int>;
-		var tranform2OutPin = transformNode2.OutputPins.Single() as OutputPin<float>;
+		var sourceOutPin = sourceNode.OutputPins.Single() as RwLock<OutputPin<int>>;
+		var target1InPin = targetNode1.InputPins.Single() as RwLock<InputPin<float>>;
+		var target2InPin = targetNode2.InputPins.Single() as RwLock<InputPin<float>>;
+		var tranform1InPin = transformNode1.InputPins.Single() as RwLock<InputPin<int>>;
+		var tranform1OutPin = transformNode1.OutputPins.Single() as RwLock<OutputPin<float>>;
+		var tranform2InPin = transformNode2.InputPins.Single() as RwLock<InputPin<int>>;
+		var tranform2OutPin = transformNode2.OutputPins.Single() as RwLock<OutputPin<float>>;
 
 		Debug.Assert(sourceOutPin != null);
 		Debug.Assert(target1InPin != null);
@@ -35,10 +35,10 @@ public class Program
 		Debug.Assert(tranform2InPin != null);
 		Debug.Assert(tranform2OutPin != null);
 
-		sourceOutPin.Connect(tranform1InPin);
-		sourceOutPin.Connect(tranform2InPin);
-		target1InPin.Connect(tranform1OutPin);
-		target2InPin.Connect(tranform2OutPin);
+		sourceOutPin.WithWrite(Constants.Timeout, x => x.Connect(tranform1InPin));
+		sourceOutPin.WithWrite(Constants.Timeout, x => x.Connect(tranform2InPin));
+		target1InPin.WithWrite(Constants.Timeout, x => x.Connect(tranform1OutPin));
+		target2InPin.WithWrite(Constants.Timeout, x => x.Connect(tranform2OutPin));
 
 		return (sourceNode, targetNode1, targetNode2);
     }
@@ -50,7 +50,7 @@ public class Program
 		var sourceLoader = src as IValueLoader<int>;
 		var targetHolder1 = dst1 as IValueHolder<float>;
 		var targetHolder2 = dst2 as IValueHolder<float>;
-		var sourceOutputPin = (src.OutputPins.Single() as OutputPin<int>);
+		var sourceOutputPin = (src.OutputPins.Single() as RwLock<OutputPin<int>>);
 
 		Debug.Assert(sourceLoader != null);
 		Debug.Assert(targetHolder1 != null);
@@ -61,7 +61,7 @@ public class Program
 		Task.WaitAll(src.ProcessForwards().Run());
 
 		Console.WriteLine("Result of processing forwards: " +
-			$"{sourceOutputPin.Data} => {targetHolder1.Value}, {targetHolder2.Value}");
+			$"{sourceOutputPin.WithRead(Constants.Timeout, x => x.Data)} => {targetHolder1.Value}, {targetHolder2.Value}");
 
 		sourceLoader.LoadValue(7);
 		Task.WaitAll(
@@ -69,7 +69,7 @@ public class Program
 			dst2.ProcessBackwards().Run());
 
 		Console.WriteLine("Result of processing backwards: " + 
-			$"{sourceOutputPin.Data} => {targetHolder1.Value}, {targetHolder2.Value}");
+			$"{sourceOutputPin.WithRead(Constants.Timeout, x => x.Data)} => {targetHolder1.Value}, {targetHolder2.Value}");
 
 	}
 

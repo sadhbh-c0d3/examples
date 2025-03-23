@@ -1,5 +1,10 @@
 ﻿namespace nodegraph
 {
+    public class Constants
+    {
+        public static TimeSpan Timeout = TimeSpan.FromSeconds(3);
+    }
+
     public interface IValueLoader<T> where T: new()
     {
         public void LoadValue(T value);
@@ -19,8 +24,8 @@
 
     public interface INode
     {
-        public IEnumerable<IPin> InputPins { get; }
-        public IEnumerable<IPin> OutputPins { get; }
+        public IEnumerable<IRwLock<IPin>> InputPins { get; }
+        public IEnumerable<IRwLock<IPin>> OutputPins { get; }
 
         public DeferredAction ProcessForwards();
         public DeferredAction ProcessBackwards();
@@ -45,7 +50,7 @@
         private T m_data;
     }
 
-    public sealed class InputPin<T> : Pin<T>
+    public sealed class InputPin<T> : Pin<T>, IRwLockFromThis<InputPin<T>>
         where T: new()
     {
         public InputPin(INode owningNode) : base(owningNode)
@@ -55,7 +60,7 @@
 
         public DeferredAction PropagateBackwards()
         {
-            return m_connection?.OwningNode.ProcessBackwards() ?? DeferredAction.NoAction;
+            return m_connection?.UnguardedData.OwningNode.ProcessBackwards() ?? DeferredAction.NoAction;
         }
 
         public void ReceiveData()
@@ -63,14 +68,18 @@
             var connection = m_connection;
             if (connection != null)
             {
-                Data = connection.Data;
+                Data = connection.WithRead(Constants.Timeout, x => x.Data);
             }
         }
 
         public override bool IsConnected => (m_connection != null);
 
-        public bool Connect(OutputPin<T> outputPin)
+        public RwLock<InputPin<T>> RwLockSelf { set => m_self = value; }
+
+        public bool Connect(RwLock<OutputPin<T>> outputPin)
         {
+            if (m_self == null) {  return false; }
+
             if (m_connection != null)
             {
                 return (m_connection == outputPin);
@@ -78,7 +87,7 @@
             
             m_connection = outputPin;
 
-            if (false == m_connection.Connect(this))
+            if (false == m_connection.WithWrite(Constants.Timeout, x => x.Connect(m_self)))
             {
                 m_connection = null;
                 return false;
@@ -89,33 +98,35 @@
 
         public override DeferredAction Disconnect()
         {
-            if (m_connection != null)
+            if (m_connection != null && m_self != null)
             {
                 var connection = m_connection;
                 m_connection = null;
-                connection.DisconnectPin(this);
 
-                return connection.OwningNode.ProcessForwards();
+                connection.WithWrite(Constants.Timeout, x => x.DisconnectPin(m_self));
+
+                return connection.UnguardedData.OwningNode.ProcessForwards();
             }
 
             return DeferredAction.NoAction;
         }
 
-        private OutputPin<T> ?m_connection;
+        private RwLock<InputPin<T>> ?m_self;
+        private RwLock<OutputPin<T>> ?m_connection;
     }
 
-    public sealed class OutputPin<T> : Pin<T>
+    public sealed class OutputPin<T> : Pin<T>, IRwLockFromThis<OutputPin<T>>
         where T: new()
     {
         public OutputPin(INode owningNode): base(owningNode)
         { 
-            m_connections = new HashSet<InputPin<T>>();
+            m_connections = new HashSet<RwLock<InputPin<T>>>();
         }
 
         public DeferredAction PropagateForwards()
         {
             var actions = from connection in m_connections
-                          let node = connection.OwningNode
+                          let node = connection.UnguardedData.OwningNode
                           select node.ProcessForwards();
 
             return new DeferredParallel(actions.ToArray());
@@ -125,20 +136,24 @@
         {
             foreach (var connection in m_connections)
             {
-                connection.Data = Data;
+                connection.WithWrite(Constants.Timeout, x => x.Data = Data);
             }
         }
 
         public override bool IsConnected => (m_connections.Count > 0);
 
-        public bool Connect(InputPin<T> inputPin)
+        public RwLock<OutputPin<T>> RwLockSelf { set => m_self = value; }
+
+        public bool Connect(RwLock<InputPin<T>> inputPin)
         {
+            if (m_self == null) {  return false; }
+
             if (false == m_connections.Add(inputPin))
             {
                 return true;
             }
 
-            if (false == inputPin.Connect(this))
+            if (false == inputPin.WithWrite(Constants.Timeout, x => x.Connect(m_self)))
             {
                 m_connections.Remove(inputPin);
                 return false;
@@ -147,11 +162,11 @@
             return true;
         }
 
-        public DeferredAction DisconnectPin(InputPin<T> pin)
+        public DeferredAction DisconnectPin(RwLock<InputPin<T>> pin)
         {
             if (m_connections.Remove(pin))
             {
-                return pin.Disconnect();
+                return pin.WithWrite(Constants.Timeout, x => x.Disconnect());
             }
 
             return DeferredAction.NoAction;
@@ -160,15 +175,16 @@
         public override DeferredAction Disconnect()
         {
             var connections = m_connections;
-            m_connections = new HashSet<InputPin<T>>();
+            m_connections = new HashSet<RwLock<InputPin<T>>>();
 
             var actions = from connection in connections
-                          select connection.Disconnect();
+                          select connection.WithWrite(Constants.Timeout, x => x.Disconnect());
 
             return new DeferredParallel(actions.ToArray());
         }
 
-        private HashSet<InputPin<T>> m_connections;
+        private RwLock<OutputPin<T>>? m_self;
+        private HashSet<RwLock<InputPin<T>>> m_connections;
     }
 
 }
